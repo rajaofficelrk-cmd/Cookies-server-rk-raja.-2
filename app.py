@@ -8,6 +8,12 @@ from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from fbchat_muqit import Client, ThreadType
 
+# Message object import karein (sabse reliable tarika)
+try:
+    from fbchat_muqit import Message
+except ImportError:
+    Message = None
+
 # ==========================================
 # 🚀 APP CONFIGURATION
 # ==========================================
@@ -60,7 +66,7 @@ def stop_sending():
     if not server_state["is_running"]: return jsonify({"status": "error", "message": "Server pehle se band hai."})
     stop_event.set()
     server_state["status"] = "Stopping..."
-    add_log("🛑 STOP signal received. User ne server roka hai.")
+    add_log("🛑 STOP signal received.")
     return jsonify({"status": "success", "message": "Stop signal bhej diya gaya."})
 
 @app.route('/api/start', methods=['POST'])
@@ -132,7 +138,11 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
     try:
         add_log("🔐 Logging into Facebook...")
         bot = Client(cookies_file_path=cookies_path)
-        await bot.start()
+        
+        # Login handle
+        if hasattr(bot, 'start'): await bot.start()
+        else: await bot.connect()
+        
         add_log(f"✅ Login Successful! UID: {bot.uid}")
 
         server_state["status"] = "Sending Messages..."
@@ -161,20 +171,38 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             
             for attempt in range(retries):
                 try:
-                    # ✅ SAHI SPELLING: sendMessageMqqtt (double q, double t)
-                    await bot.sendMessageMqqtt(final_message, thread_id, thread_type)
-                    success = True
-                    break
-                except AttributeError:
-                    # Agar MQTT method nahi mila toh seedha HTTP fallback
-                    add_log(f"⚠️ MQTT method nahi mila, HTTP fallback use kar raha hoon...")
-                    try:
+                    # ==========================================
+                    # 🚀 SMART AUTO-DETECT SEND SYSTEM
+                    # ==========================================
+                    sent = False
+                    
+                    # Method 1: Purana tarika (sendMessage)
+                    if hasattr(bot, 'sendMessage'):
                         await bot.sendMessage(final_message, thread_id, thread_type)
+                        sent = True
+                    
+                    # Method 2: Naya snake_case tarika (send_message)
+                    elif hasattr(bot, 'send_message'):
+                        try:
+                            await bot.send_message(text=final_message, thread_id=thread_id)
+                            sent = True
+                        except TypeError:
+                            await bot.send_message(final_message, thread_id)
+                            sent = True
+                    
+                    # Method 3: Core Object tarika (Message)
+                    elif Message and hasattr(bot, 'send'):
+                        msg_obj = Message(text=final_message)
+                        await bot.send(msg_obj, thread_id=thread_id)
+                        sent = True
+                        
+                    if sent:
                         success = True
                         break
-                    except Exception as e:
-                        add_log(f"❌ [{idx}/{total}] HTTP Failed: {str(e)}")
+                    else:
+                        add_log("❌ Error: Library mein koi send function nahi mila.")
                         break
+                        
                 except Exception as e:
                     err_str = str(e).lower()
                     if "timed out" in err_str or "timeout" in err_str:
