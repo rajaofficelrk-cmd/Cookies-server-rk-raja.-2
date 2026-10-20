@@ -13,12 +13,9 @@ from fbchat_muqit import Client, ThreadType
 # ==========================================
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB tak ki file allowed
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# ==========================================
-# 📝 LOGGING & STATE
-# ==========================================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -30,13 +27,9 @@ def add_log(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     log_msg = f"[{timestamp}] {message}"
     server_state["logs"].append(log_msg)
-    if len(server_state["logs"]) > 150:
-        server_state["logs"].pop(0)
+    if len(server_state["logs"]) > 150: server_state["logs"].pop(0)
     logger.info(message)
 
-# ==========================================
-# 🍪 SMART COOKIE PARSER
-# ==========================================
 def parse_cookies(cookie_input):
     cookie_input = cookie_input.strip()
     if cookie_input.startswith('[') and cookie_input.endswith(']'):
@@ -53,31 +46,24 @@ def parse_cookies(cookie_input):
         if cookies: return cookies
     raise ValueError("Invalid cookie format.")
 
-# ==========================================
-# 🌐 ROUTES
-# ==========================================
 @app.route('/')
-def index():
-    return render_template('index.html')
+def index(): return render_template('index.html')
 
 @app.route('/api/status', methods=['GET'])
-def get_status():
-    return jsonify(server_state)
+def get_status(): return jsonify(server_state)
 
 @app.route('/api/stop', methods=['POST'])
 def stop_sending():
-    if not server_state["is_running"]:
-        return jsonify({"status": "error", "message": "Server pehle se band hai."})
+    if not server_state["is_running"]: return jsonify({"status": "error", "message": "Server pehle se band hai."})
     stop_event.set()
     server_state["status"] = "Stopping..."
-    add_log("🛑 STOP signal received. Ruk raha hai...")
+    add_log("🛑 STOP signal received.")
     return jsonify({"status": "success", "message": "Stop signal bhej diya gaya."})
 
 @app.route('/api/start', methods=['POST'])
 def start_sending():
     global sending_thread
-    if server_state["is_running"]:
-        return jsonify({"status": "error", "message": "Server pehle se chal raha hai!"})
+    if server_state["is_running"]: return jsonify({"status": "error", "message": "Server pehle se chal raha hai!"})
 
     cookies_data = request.form.get('cookies', '').strip()
     thread_id = request.form.get('thread_id', '').strip()
@@ -98,8 +84,7 @@ def start_sending():
     try:
         cookies_list = parse_cookies(cookies_data)
         cookies_path = os.path.join(app.config['UPLOAD_FOLDER'], 'cookies.json')
-        with open(cookies_path, 'w', encoding='utf-8') as f:
-            json.dump(cookies_list, f)
+        with open(cookies_path, 'w', encoding='utf-8') as f: json.dump(cookies_list, f)
         
         filename = secure_filename(message_file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -126,9 +111,6 @@ def start_sending():
     add_log(f"🚀 Server Started by {sender_name} for {thread_id}")
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
-# ==========================================
-# ⚙️ BACKGROUND WORKER (send_message fix)
-# ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -146,29 +128,36 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
     bot = None
     try:
         add_log("🔐 Logging into Facebook...")
-        
         bot = Client(cookies_file_path=cookies_path)
         await bot.start()
-        
         add_log(f"✅ Login Successful! UID: {bot.uid}")
-        server_state["status"] = "Sending Messages..."
 
-        # --- SMART FILE READER ---
+        # ✅ Group ID Verification (Timeout Fix)
+        add_log("🔍 Verifying Group Access...")
+        try:
+            thread_info = await bot.fetchThreadInfo(thread_id)
+            if not thread_info:
+                add_log("❌ ERROR: Group ID invalid hai ya account us group ka member nahi hai.")
+                server_state["status"] = "Invalid Group ID"
+                return
+            add_log(f"✅ Group Found: {thread_info[thread_id].name}")
+        except Exception as e:
+            add_log(f"⚠️ Verification warning: {e} (Proceeding anyway)")
+
+        server_state["status"] = "Sending Messages..."
+        
         messages = []
         try:
-            with open(filepath, 'r', encoding='utf-8-sig') as f:
-                messages = [line.strip() for line in f if line.strip()]
+            with open(filepath, 'r', encoding='utf-8-sig') as f: messages = [line.strip() for line in f if line.strip()]
         except UnicodeDecodeError:
-            add_log("⚠️ File format alag hai, Fallback reader use kar raha hoon...")
-            with open(filepath, 'r', encoding='latin-1') as f:
-                messages = [line.strip() for line in f if line.strip()]
+            with open(filepath, 'r', encoding='latin-1') as f: messages = [line.strip() for line in f if line.strip()]
 
         total = len(messages)
         if total == 0:
             add_log("⚠️ File khali hai.")
             return
 
-        add_log(f"📁 Total {total} messages mil gaye. Delay: {delay}s")
+        add_log(f"📁 Total {total} messages. Delay: {delay}s")
 
         for idx, msg in enumerate(messages, 1):
             if stop_event.is_set():
@@ -176,26 +165,30 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
                 break
 
             final_message = f"{msg}\n\n— {sender_name}"
-
-            # --- ANTI-ERROR & RETRY LOOP ---
             success = False
             retries = 3
             
             for attempt in range(retries):
                 try:
-                    # ✅ FIX: sendMessage ki jagah send_message
-                    await bot.send_message(final_message, thread_id)
+                    # ✅ MQTT METHOD (Fix for Group Timeout)
+                    await bot.sendMessageMqtt(final_message, thread_id, thread_type)
                     success = True
                     break
-                    
                 except Exception as e:
                     err_str = str(e).lower()
                     if "timed out" in err_str or "timeout" in err_str:
-                        add_log(f"⚠️ [{idx}/{total}] Network Timeout. Retry ({attempt+1}/{retries})...")
-                        await asyncio.sleep(5)
+                        add_log(f"⚠️ [{idx}/{total}] MQTT Timeout. Retry ({attempt+1}/{retries})...")
+                        await asyncio.sleep(8)
                     else:
-                        add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
-                        break
+                        # Fallback to HTTP if MQTT fails
+                        add_log(f"⚠️ MQTT Failed. Trying HTTP fallback...")
+                        try:
+                            await bot.sendMessage(final_message, thread_id, thread_type)
+                            success = True
+                            break
+                        except Exception as http_e:
+                            add_log(f"❌ [{idx}/{total}] Failed: {str(http_e)}")
+                            break
             
             if success:
                 server_state["total_sent"] += 1
@@ -203,7 +196,6 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             else:
                 server_state["total_failed"] += 1
             
-            # --- USER SET DELAY LOOP ---
             for _ in range(delay):
                 if stop_event.is_set(): break
                 await asyncio.sleep(1)
