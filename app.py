@@ -11,9 +11,6 @@ from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from fbchat_muqit import Client, ThreadType
 
-# ==========================================
-# 🚀 APP CONFIGURATION
-# ==========================================
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
@@ -50,42 +47,53 @@ def parse_cookies(cookie_input):
     raise ValueError("Invalid cookie format.")
 
 # ==========================================
-# 🌐 AUTO PROXY FETCHER & TESTER
+# 🚀 UNIVERSAL SEND SYSTEM (Jo bhi mile use karega)
 # ==========================================
+async def universal_send(bot, text, thread_id):
+    # Method 1
+    if hasattr(bot, 'sendMessage'):
+        return await bot.sendMessage(text, thread_id, ThreadType.GROUP)
+    # Method 2
+    elif hasattr(bot, 'send_message'):
+        try:
+            return await bot.send_message(text=text, thread_id=thread_id)
+        except TypeError:
+            return await bot.send_message(text, thread_id)
+    # Method 3
+    elif hasattr(bot, 'sendMessageMqqtt'):
+        return await bot.sendMessageMqqtt(text, thread_id, ThreadType.GROUP)
+    # Method 4
+    elif hasattr(bot, 'send'):
+        return await bot.send(text, thread_id)
+    else:
+        raise AttributeError("Koi bhi sending method library mein nahi mila!")
+
 def get_working_proxy():
-    add_log("🌐 Auto-fetching free proxies from internet...")
+    add_log("🌐 Auto-fetching proxies (Free proxies are mostly dead, please wait)...")
     urls = [
         "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
-        "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt"
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
     ]
-    
     proxies = []
     for url in urls:
         try:
             res = requests.get(url, timeout=5)
-            if res.status_code == 200:
-                proxies.extend(res.text.split('\n'))
+            if res.status_code == 200: proxies.extend(res.text.split('\n'))
         except: pass
         
     proxies = [p.strip() for p in proxies if p.strip()]
     random.shuffle(proxies)
     
-    add_log(f"🔍 Testing {len(proxies[:30])} proxies to find a fast one...")
-    
-    # Top 30 proxies test karein
-    for proxy in proxies[:30]:
+    for proxy in proxies[:10]: # Sirf top 10 test karega taaki time waste na ho
         proxy_url = f"http://{proxy}"
         try:
-            # Test if proxy is alive and working for FB
             test = requests.get("https://www.facebook.com", proxies={"http": proxy_url, "https": proxy_url}, timeout=3)
             if test.status_code == 200:
                 add_log(f"✅ Fast Proxy Found: {proxy}")
                 return proxy_url
-        except:
-            continue
+        except: continue
             
-    add_log("⚠️ Koi fast proxy nahi mili. Direct connection try kar raha hoon.")
+    add_log("⚠️ Free Proxy nahi mili. Direct connection (Blocked IP) par try kar raha hoon.")
     return None
 
 @app.route('/')
@@ -171,12 +179,10 @@ def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name):
 async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name):
     bot = None
     try:
-        # ✅ AUTO PROXY SETUP
         working_proxy = get_working_proxy()
         if working_proxy:
             os.environ['HTTP_PROXY'] = working_proxy
             os.environ['HTTPS_PROXY'] = working_proxy
-            add_log("🌐 Proxy set successfully! Render IP bypassed.")
         
         add_log("🔐 Logging into Facebook...")
         bot = Client(cookies_file_path=cookies_path)
@@ -207,8 +213,8 @@ async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_nam
             success = False
             
             try:
-                # 10 Second timeout
-                await asyncio.wait_for(bot.sendMessage(final_message, thread_id, ThreadType.GROUP), timeout=10.0)
+                # ✅ UNIVERSAL SEND WITH 10s TIMEOUT
+                await asyncio.wait_for(universal_send(bot, final_message, thread_id), timeout=10.0)
                 success = True
             except asyncio.TimeoutError:
                 add_log(f"⏭️ [{idx}/{total}] Timeout. Skip...")
