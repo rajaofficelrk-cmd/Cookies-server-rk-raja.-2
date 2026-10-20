@@ -35,34 +35,28 @@ def add_log(message):
     logger.info(message)
 
 # ==========================================
-# 🍪 COOKIE PARSER
+# 🍪 SMART COOKIE PARSER
 # ==========================================
 def parse_cookies(cookie_input):
     cookie_input = cookie_input.strip()
+    
+    # Agar JSON array hai
     if cookie_input.startswith('[') and cookie_input.endswith(']'):
         try:
             parsed = json.loads(cookie_input)
-            if isinstance(parsed, list) and len(parsed) > 0 and 'key' in parsed[0]:
-                return parsed
-        except json.JSONDecodeError:
-            pass
+            if isinstance(parsed, list): return parsed
+        except: pass
+            
+    # Agar string format hai (c_user=...; xs=...)
     if ';' in cookie_input or '=' in cookie_input:
         cookies = []
         for pair in cookie_input.split(';'):
             if '=' in pair:
                 k, v = pair.split('=', 1)
                 cookies.append({"key": k.strip(), "value": v.strip()})
-        if cookies:
-            return cookies
-    try:
-        if '"key"' in cookie_input:
-            formatted = f"[{cookie_input}]"
-            parsed = json.loads(formatted)
-            if isinstance(parsed, list):
-                return parsed
-    except:
-        pass
-    raise ValueError("Invalid cookie format. Please paste exact C3C JSON or 'c_user=...; xs=...' text.")
+        if cookies: return cookies
+        
+    raise ValueError("Invalid cookie format. Paste JSON or c_user=...; xs=... format.")
 
 # ==========================================
 # 🌐 ROUTES
@@ -141,7 +135,7 @@ def start_sending():
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
 # ==========================================
-# ⚙️ BACKGROUND WORKER (Fixed for v1.2.2)
+# ⚙️ DYNAMIC BACKGROUND WORKER (Anti-Error)
 # ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
@@ -161,20 +155,32 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
     try:
         add_log("🔐 Logging into Facebook...")
         
-        # --- NAYA TARIKA (v1.2.2) ---
-        # Agar startSession available hai toh fallback use karein, warna naya Client use karein
-        if hasattr(Client, 'startSession'):
+        # --- DYNAMIC LOGIN SYSTEM (Har version ke liye) ---
+        try:
+            bot = Client(cookies_file_path=cookies_path)
+        except TypeError:
+            with open(cookies_path, 'r') as f:
+                cookies_dict = json.load(f)
+            bot = Client(cookies=cookies_dict)
+
+        # Start/Login function dhoondein
+        if hasattr(bot, 'start'):
+            await bot.start()
+        elif hasattr(bot, 'connect'):
+            await bot.connect()
+        elif hasattr(bot, 'login'):
+            await bot.login()
+        elif hasattr(Client, 'startSession'):
             bot = await Client.startSession(cookies_path)
         else:
-            # Naya version: Client ko direct async with me use karein
-            bot = Client(cookies_file_path=cookies_path)
-            await bot.connect()  # Connection initiate karein
-        
-        if not await bot.isLoggedIn():
-            add_log("❌ Login Failed! Cookies expire ho gayi hain.")
+            raise Exception("Library mein koi valid login method nahi mila.")
+
+        # Agar login fail hua toh UID nahi milega
+        if not getattr(bot, 'uid', None):
+            add_log("❌ Login Failed! Cookies expire ho gayi hain ya account checkpoint mein hai.")
             server_state["status"] = "Login Failed"
             return
-        
+            
         add_log(f"✅ Login Successful! UID: {bot.uid}")
         server_state["status"] = "Sending Messages..."
 
@@ -197,8 +203,20 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             final_message = f"{msg}\n\n— {sender_name}"
 
             try:
-                # Message bhejne ke liye sendMessage use karein (jo dono versions me hai)
-                await bot.sendMessage(final_message, thread_id, thread_type)
+                # --- DYNAMIC SEND SYSTEM (Har version ke liye) ---
+                if hasattr(bot, 'send_message'):
+                    try:
+                        # Naya tarika (keyword arguments ke sath)
+                        await bot.send_message(text=final_message, thread_id=thread_id, thread_type=thread_type)
+                    except TypeError:
+                        # Naya tarika (bina keyword ke)
+                        await bot.send_message(final_message, thread_id)
+                elif hasattr(bot, 'sendMessage'):
+                    # Purana tarika
+                    await bot.sendMessage(final_message, thread_id, thread_type)
+                else:
+                    raise Exception("Message bhejne ka koi function nahi mila.")
+
                 server_state["total_sent"] += 1
                 add_log(f"✅ [{idx}/{total}] Sent: {msg[:30]}...")
             except Exception as e:
@@ -214,13 +232,9 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
     finally:
         if bot:
             try:
-                # Connection close karein
-                if hasattr(bot, 'stop'):
-                    await bot.stop()
-                elif hasattr(bot, 'disconnect'):
-                    await bot.disconnect()
-            except: 
-                pass
+                if hasattr(bot, 'stop'): await bot.stop()
+                elif hasattr(bot, 'disconnect'): await bot.disconnect()
+            except: pass
         server_state["is_running"] = False
         if not stop_event.is_set():
             server_state["status"] = "Completed"
