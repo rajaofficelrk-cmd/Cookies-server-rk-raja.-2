@@ -8,12 +8,6 @@ from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from fbchat_muqit import Client, ThreadType
 
-# Message object import karein (sabse reliable tarika)
-try:
-    from fbchat_muqit import Message
-except ImportError:
-    Message = None
-
 # ==========================================
 # 🚀 APP CONFIGURATION
 # ==========================================
@@ -76,7 +70,6 @@ def start_sending():
 
     cookies_data = request.form.get('cookies', '').strip()
     thread_id = request.form.get('thread_id', '').strip()
-    thread_type_str = request.form.get('thread_type', 'GROUP').upper()
     time_delay = request.form.get('time_delay', '10')
     sender_name = request.form.get('sender_name', 'Unknown').strip()
     message_file = request.files.get('message_file')
@@ -107,12 +100,10 @@ def start_sending():
     server_state["logs"] = []
     server_state["total_sent"] = 0
     server_state["total_failed"] = 0
-    
-    thread_type = ThreadType.GROUP if thread_type_str == 'GROUP' else ThreadType.USER
 
     sending_thread = threading.Thread(
         target=run_async_worker,
-        args=(cookies_path, thread_id, thread_type, filepath, time_delay, sender_name)
+        args=(cookies_path, thread_id, filepath, time_delay, sender_name)
     )
     sending_thread.daemon = True
     sending_thread.start()
@@ -120,11 +111,11 @@ def start_sending():
     add_log(f"🚀 Server Started by {sender_name} for {thread_id}")
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
-def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
+def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, delay, sender_name))
+        loop.run_until_complete(bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name))
     except Exception as e:
         add_log(f"❌ Critical Thread Error: {str(e)}")
     finally:
@@ -133,16 +124,54 @@ def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, send
         server_state["status"] = "Idle"
         add_log("💤 Server thread stopped.")
 
-async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
+# ==========================================
+# 🚀 UNIVERSAL SEND FUNCTION (Har version ke liye)
+# ==========================================
+async def universal_send(bot, text, thread_id):
+    thread_type = ThreadType.GROUP
+    
+    # Try 1: Newest Method
+    if hasattr(bot, 'send_message'):
+        try:
+            await bot.send_message(text=text, thread_id=thread_id)
+            return True
+        except Exception as e:
+            if "timed out" in str(e).lower(): raise e
+            
+    # Try 2: Standard Method
+    if hasattr(bot, 'sendMessage'):
+        try:
+            await bot.sendMessage(text, thread_id, thread_type)
+            return True
+        except Exception as e:
+            if "timed out" in str(e).lower(): raise e
+
+    # Try 3: MQTT Methods
+    for method_name in ['sendMessageMqqtt', 'sendMessageMqtt']:
+        if hasattr(bot, method_name):
+            try:
+                method = getattr(bot, method_name)
+                await method(text, thread_id, thread_type)
+                return True
+            except Exception as e:
+                if "timed out" in str(e).lower(): raise e
+
+    # Try 4: Generic send
+    if hasattr(bot, 'send'):
+        try:
+            await bot.send(text, thread_id)
+            return True
+        except Exception as e:
+            if "timed out" in str(e).lower(): raise e
+            
+    raise Exception("Library mein koi valid message sending function nahi mila.")
+
+async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name):
     bot = None
     try:
         add_log("🔐 Logging into Facebook...")
         bot = Client(cookies_file_path=cookies_path)
-        
-        # Login handle
-        if hasattr(bot, 'start'): await bot.start()
-        else: await bot.connect()
-        
+        await bot.start()
         add_log(f"✅ Login Successful! UID: {bot.uid}")
 
         server_state["status"] = "Sending Messages..."
@@ -165,52 +194,18 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
                 add_log("🛑 Loop stopped by user.")
                 break
 
+            # Here Name formatting
             final_message = f"{msg}\n\n— {sender_name}"
             success = False
-            retries = 3
             
-            for attempt in range(retries):
-                try:
-                    # ==========================================
-                    # 🚀 SMART AUTO-DETECT SEND SYSTEM
-                    # ==========================================
-                    sent = False
-                    
-                    # Method 1: Purana tarika (sendMessage)
-                    if hasattr(bot, 'sendMessage'):
-                        await bot.sendMessage(final_message, thread_id, thread_type)
-                        sent = True
-                    
-                    # Method 2: Naya snake_case tarika (send_message)
-                    elif hasattr(bot, 'send_message'):
-                        try:
-                            await bot.send_message(text=final_message, thread_id=thread_id)
-                            sent = True
-                        except TypeError:
-                            await bot.send_message(final_message, thread_id)
-                            sent = True
-                    
-                    # Method 3: Core Object tarika (Message)
-                    elif Message and hasattr(bot, 'send'):
-                        msg_obj = Message(text=final_message)
-                        await bot.send(msg_obj, thread_id=thread_id)
-                        sent = True
-                        
-                    if sent:
-                        success = True
-                        break
-                    else:
-                        add_log("❌ Error: Library mein koi send function nahi mila.")
-                        break
-                        
-                except Exception as e:
-                    err_str = str(e).lower()
-                    if "timed out" in err_str or "timeout" in err_str:
-                        add_log(f"⚠️ [{idx}/{total}] Network Timeout. Retry ({attempt+1}/{retries})...")
-                        await asyncio.sleep(8)
-                    else:
-                        add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
-                        break
+            try:
+                # ✅ 15 SECOND HARD TIMEOUT (Server hang nahi hoga)
+                await asyncio.wait_for(universal_send(bot, final_message, thread_id), timeout=15.0)
+                success = True
+            except asyncio.TimeoutError:
+                add_log(f"⏭️ [{idx}/{total}] Timeout (15s). Skip kar raha hoon...")
+            except Exception as e:
+                add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
             
             if success:
                 server_state["total_sent"] += 1
@@ -218,9 +213,11 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             else:
                 server_state["total_failed"] += 1
             
-            for _ in range(delay):
-                if stop_event.is_set(): break
-                await asyncio.sleep(1)
+            # Delay for next message
+            if not stop_event.is_set() and idx < total:
+                for _ in range(delay):
+                    if stop_event.is_set(): break
+                    await asyncio.sleep(1)
 
     except Exception as e:
         add_log(f"❌ System Error: {str(e)}")
