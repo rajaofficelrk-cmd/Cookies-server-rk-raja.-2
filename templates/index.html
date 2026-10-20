@@ -5,248 +5,214 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>💀 Bulk Messenger Panel</title>
     <style>
-        :root {
-            --bg: #0f0f0f;
-            --card: #1e1e1e;
-            --border: #333;
-            --text: #eee;
-            --accent: #e50914;
-            --green: #28a745;
-            --red: #dc3545;
-            --yellow: #ffc107;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 32px;
-            width: 100%;
-            max-width: 600px;
-            box-shadow: 0 0 30px rgba(229, 9, 20, 0.15);
-        }
-        .header {
-            text-align: center;
-            font-size: 4em;
-            margin-bottom: 8px;
-            text-shadow: 0 0 25px var(--accent);
-        }
-        .subheader {
-            text-align: center;
-            color: #888;
-            letter-spacing: 3px;
-            font-size: 0.9em;
-            margin-bottom: 28px;
-            text-transform: uppercase;
-        }
-        label {
-            display: block;
-            margin-top: 18px;
-            margin-bottom: 6px;
-            font-weight: 600;
-            color: #aaa;
-            font-size: 0.95em;
-        }
-        textarea, input[type="text"], input[type="number"], select, input[type="file"] {
-            width: 100%;
-            padding: 12px 14px;
-            background: #2a2a2a;
-            border: 1px solid #444;
-            border-radius: 8px;
-            color: #fff;
-            font-size: 14px;
-            transition: border-color 0.2s;
-        }
-        textarea:focus, input:focus, select:focus {
-            outline: none;
-            border-color: var(--accent);
-        }
-        textarea { resize: vertical; min-height: 100px; }
-        .btn-group {
-            display: flex;
-            gap: 12px;
-            margin-top: 28px;
-        }
-        button {
-            flex: 1;
-            padding: 16px;
-            font-size: 16px;
-            font-weight: 700;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: transform 0.1s, opacity 0.2s;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        button:active { transform: scale(0.98); }
-        button:disabled { opacity: 0.5; cursor: not-allowed; }
-        #startBtn { background: var(--green); color: #fff; }
-        #startBtn:hover:not(:disabled) { background: #218838; }
+        :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+        body { background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; min-height: 100vh; }
+        .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; box-shadow: 0 0 40px rgba(255, 0, 51, 0.1); }
+        
+        .header-area { text-align: center; margin-bottom: 25px; }
+        .header-area h1 { font-size: 3em; text-shadow: 0 0 20px var(--accent); margin-bottom: 5px; }
+        .header-area p { color: #888; font-size: 0.9em; letter-spacing: 2px; text-transform: uppercase; }
+        
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .full-width { grid-column: span 2; }
+        
+        label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.85em; font-weight: bold; }
+        textarea, input, select { width: 100%; padding: 12px; background: #000; border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 14px; }
+        textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+        
+        .btn-group { display: flex; gap: 10px; margin-top: 20px; }
+        button { flex: 1; padding: 15px; border: none; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer; text-transform: uppercase; transition: 0.2s; }
+        #startBtn { background: var(--green); color: #000; }
         #stopBtn { background: var(--red); color: #fff; }
-        #stopBtn:hover:not(:disabled) { background: #c82333; }
-        #statusBox {
-            margin-top: 24px;
-            padding: 16px;
-            background: #111;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 14px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        #statusText { font-weight: 600; }
-        #refreshBtn {
-            background: #333;
-            color: #ddd;
-            border: none;
-            padding: 6px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 12px;
-            flex: none;
-            width: auto;
-        }
-        #refreshBtn:hover { background: #444; }
-        .hint { font-size: 12px; color: #666; margin-top: 4px; }
-        .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 700;
-            margin-left: 6px;
-        }
-        .badge-running { background: var(--green); color: #fff; }
-        .badge-stopped { background: #555; color: #ccc; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        
+        /* Live Terminal */
+        .terminal { margin-top: 25px; background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; height: 200px; overflow-y: auto; font-size: 13px; }
+        .log-line { margin-bottom: 4px; color: #bbb; }
+        .log-success { color: var(--green); }
+        .log-error { color: var(--red); }
+        
+        .status-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding: 15px; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; }
+        .badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; }
+        .badge.idle { background: #333; color: #aaa; }
+        .badge.running { background: var(--green); color: #000; animation: pulse 1.5s infinite; }
+        .badge.stopped { background: var(--red); color: #fff; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">💀</div>
-        <div class="subheader">Bulk Messenger Panel</div>
+        <div class="header-area">
+            <h1>💀</h1>
+            <p>Messenger Bulk Sender</p>
+        </div>
 
         <form id="senderForm">
-            <label for="cookies">🍪 Facebook Cookies (C3C JSON)</label>
-            <textarea id="cookies" name="cookies" placeholder='[{"key":"c_user","value":"..."}, ...]' required></textarea>
-            <div class="hint">C3C extension se copy kiya hua JSON yahan paste karein.</div>
+            <div class="grid">
+                <div class="full-width">
+                    <label>🍪 Cookies (C3C JSON)</label>
+                    <textarea id="cookies" name="cookies" rows="3" placeholder='[{"key":"c_user","value":"..."}, ...]' required></textarea>
+                </div>
+                
+                <div>
+                    <label>👥 Group UID / IB</label>
+                    <input type="text" id="thread_id" name="thread_id" placeholder="e.g. 1234567890" required>
+                </div>
 
-            <label for="thread_id">👥 Group UID / IB (Thread ID)</label>
-            <input type="text" id="thread_id" name="thread_id" placeholder="e.g. 1234567890" required>
+                <div>
+                    <label>📌 Thread Type</label>
+                    <select id="thread_type" name="thread_type">
+                        <option value="GROUP" selected>Group (Recommended)</option>
+                        <option value="USER">User (IB) - E2E issue</option>
+                    </select>
+                </div>
 
-            <label for="thread_type">📌 Thread Type</label>
-            <select id="thread_type" name="thread_type">
-                <option value="GROUP" selected>Group (Recommended)</option>
-                <option value="USER">User (IB) - May fail due to E2E encryption</option>
-            </select>
+                <div>
+                    <label>⏱️ Time Delay (Seconds)</label>
+                    <input type="number" id="time_delay" name="time_delay" value="10" min="5" required>
+                </div>
 
-            <label for="message_file">📁 Message File (.txt)</label>
-            <input type="file" id="message_file" name="message_file" accept=".txt" required>
-            <div class="hint">Har line ek alag message hogi.</div>
+                <div>
+                    <label>🏷️ Here Name (Sender Name)</label>
+                    <input type="text" id="sender_name" name="sender_name" placeholder="I am here" required>
+                </div>
 
-            <label for="time_delay">⏱️ Time Delay (seconds)</label>
-            <input type="number" id="time_delay" name="time_delay" value="10" min="5" required>
-
-            <label for="sender_name">🏷️ Sender Name (Here Name)</label>
-            <input type="text" id="sender_name" name="sender_name" placeholder="e.g. YourName" required>
+                <div class="full-width">
+                    <label>📁 Upload Message File (.txt)</label>
+                    <input type="file" id="message_file" name="message_file" accept=".txt" required>
+                </div>
+            </div>
 
             <div class="btn-group">
-                <button type="button" id="startBtn">▶️ RUN</button>
-                <button type="button" id="stopBtn">⏹️ STOP</button>
+                <button type="button" id="startBtn">▶️ Run Server</button>
+                <button type="button" id="stopBtn" disabled>⏹️ Stop Server</button>
             </div>
         </form>
 
-        <div id="statusBox">
-            <span id="statusText">Status: Idle</span>
-            <button id="refreshBtn">🔄 Refresh</button>
+        <div class="status-bar">
+            <div>
+                <span>Status: </span>
+                <span id="statusBadge" class="badge idle">IDLE</span>
+                <span id="statusText" style="margin-left:10px; font-size:13px; color:#888;">Waiting...</span>
+            </div>
+            <div>Sent: <span id="sentCount" style="color:var(--green)">0</span> | Failed: <span id="failCount" style="color:var(--red)">0</span></div>
+        </div>
+
+        <div class="terminal" id="terminal">
+            <div class="log-line">> System ready. Waiting for input...</div>
         </div>
     </div>
 
     <script>
-        const statusText = document.getElementById('statusText');
+        const form = document.getElementById('senderForm');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const refreshBtn = document.getElementById('refreshBtn');
-        const form = document.getElementById('senderForm');
+        const terminal = document.getElementById('terminal');
+        let pollingInterval = null;
 
-        let statusInterval = null;
+        // Terminal me log add karne ke liye
+        function printLog(msg) {
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            if (msg.includes('✅') || msg.includes('🎉')) div.classList.add('log-success');
+            if (msg.includes('❌') || msg.includes('🛑')) div.classList.add('log-error');
+            div.innerText = msg;
+            terminal.appendChild(div);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
 
-        async function fetchStatus() {
+        // Backend se status check karna
+        async function checkStatus() {
             try {
-                const res = await fetch('/status');
+                // Render sleep mode se jagane ke liye ping
+                const res = await fetch('/api/status');
                 const data = await res.json();
-                updateStatus(data);
-            } catch (e) {
-                console.error('Status fetch error:', e);
+                
+                const badge = document.getElementById('statusBadge');
+                badge.className = `badge ${data.is_running ? 'running' : 'idle'}`;
+                badge.innerText = data.is_running ? 'RUNNING' : 'IDLE';
+                document.getElementById('statusText').innerText = data.status;
+                document.getElementById('sentCount').innerText = data.total_sent;
+                document.getElementById('failCount').innerText = data.total_failed;
+
+                // Logs print karein
+                if (data.logs && data.logs.length > 0) {
+                    terminal.innerHTML = ''; // Clear old
+                    data.logs.forEach(log => printLog(log));
+                }
+
+                startBtn.disabled = data.is_running;
+                stopBtn.disabled = !data.is_running;
+
+            } catch (err) {
+                console.log("Ping failed, Render server waking up...");
             }
         }
 
-        function updateStatus(data) {
-            const badge = data.is_running 
-                ? '<span class="badge badge-running">RUNNING</span>' 
-                : '<span class="badge badge-stopped">STOPPED</span>';
-            statusText.innerHTML = `Status: ${data.status} ${badge}`;
-            startBtn.disabled = data.is_running;
-            stopBtn.disabled = !data.is_running;
-        }
-
+        // Start Button Logic (With Auto-Retry for Render)
         startBtn.addEventListener('click', async () => {
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
-            }
-
+            if (!form.checkValidity()) { form.reportValidity(); return; }
+            
             const formData = new FormData(form);
-            statusText.innerText = "Starting...";
+            terminal.innerHTML = '';
+            printLog("> Waking up Render server & starting process...");
             startBtn.disabled = true;
 
             try {
-                const res = await fetch('/start', { method: 'POST', body: formData });
+                const res = await fetch('/api/start', { method: 'POST', body: formData });
                 const data = await res.json();
-                alert(data.message);
-                if (data.status === 'success') {
-                    if (statusInterval) clearInterval(statusInterval);
-                    statusInterval = setInterval(fetchStatus, 3000);
-                } else {
+                if (data.status === 'error') {
+                    alert(data.message);
                     startBtn.disabled = false;
+                    return;
                 }
-            } catch (e) {
-                alert('Network error: ' + e.message);
-                startBtn.disabled = false;
+                
+                if (!pollingInterval) pollingInterval = setInterval(checkStatus, 3000);
+                checkStatus();
+            } catch (err) {
+                // Render cold start handle karne ke liye 5 baar retry
+                printLog("> Server so raha hai. Waking up (Retry 1/5)...");
+                let retries = 0;
+                const retryInterval = setInterval(async () => {
+                    retries++;
+                    try {
+                        const res = await fetch('/api/start', { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if (data.status === 'success') {
+                            clearInterval(retryInterval);
+                            if (!pollingInterval) pollingInterval = setInterval(checkStatus, 3000);
+                            checkStatus();
+                        }
+                    } catch (e) {
+                        printLog(`> Server waking up (Retry ${retries}/5)...`);
+                        if (retries >= 5) {
+                            clearInterval(retryInterval);
+                            printLog("> ❌ Server failed to wake up. Please try again.");
+                            startBtn.disabled = false;
+                        }
+                    }
+                }, 6000); // Har 6 second me retry
             }
-            fetchStatus();
         });
 
+        // Stop Button Logic
         stopBtn.addEventListener('click', async () => {
             stopBtn.disabled = true;
-            statusText.innerText = "Stopping...";
+            printLog("> Sending stop signal...");
             try {
-                const res = await fetch('/stop', { method: 'POST' });
-                const data = await res.json();
-                alert(data.message);
-                if (statusInterval) {
-                    clearInterval(statusInterval);
-                    statusInterval = null;
-                }
+                await fetch('/api/stop', { method: 'POST' });
             } catch (e) {
-                alert('Network error: ' + e.message);
+                alert("Stop request failed. Server might be asleep.");
             }
-            fetchStatus();
         });
 
-        refreshBtn.addEventListener('click', fetchStatus);
-        fetchStatus();
+        // Pehli baar load hote hi status check karein
+        window.onload = () => {
+            checkStatus();
+            pollingInterval = setInterval(checkStatus, 5000); // Har 5 sec me check karega
+        };
     </script>
 </body>
 </html>
