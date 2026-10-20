@@ -4,6 +4,8 @@ import json
 import asyncio
 import threading
 import logging
+import requests
+import random
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
@@ -47,6 +49,45 @@ def parse_cookies(cookie_input):
         if cookies: return cookies
     raise ValueError("Invalid cookie format.")
 
+# ==========================================
+# 🌐 AUTO PROXY FETCHER & TESTER
+# ==========================================
+def get_working_proxy():
+    add_log("🌐 Auto-fetching free proxies from internet...")
+    urls = [
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+        "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt"
+    ]
+    
+    proxies = []
+    for url in urls:
+        try:
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                proxies.extend(res.text.split('\n'))
+        except: pass
+        
+    proxies = [p.strip() for p in proxies if p.strip()]
+    random.shuffle(proxies)
+    
+    add_log(f"🔍 Testing {len(proxies[:30])} proxies to find a fast one...")
+    
+    # Top 30 proxies test karein
+    for proxy in proxies[:30]:
+        proxy_url = f"http://{proxy}"
+        try:
+            # Test if proxy is alive and working for FB
+            test = requests.get("https://www.facebook.com", proxies={"http": proxy_url, "https": proxy_url}, timeout=3)
+            if test.status_code == 200:
+                add_log(f"✅ Fast Proxy Found: {proxy}")
+                return proxy_url
+        except:
+            continue
+            
+    add_log("⚠️ Koi fast proxy nahi mili. Direct connection try kar raha hoon.")
+    return None
+
 @app.route('/')
 def index(): return render_template('index.html')
 
@@ -73,7 +114,6 @@ def start_sending():
     raw_thread_id = request.form.get('thread_id', '').strip()
     time_delay = request.form.get('time_delay', '10')
     sender_name = request.form.get('sender_name', 'Unknown').strip()
-    proxy_url = request.form.get('proxy_url', '').strip() # Naya Proxy Input
     message_file = request.files.get('message_file')
 
     if not cookies_data or not raw_thread_id or not message_file:
@@ -107,7 +147,7 @@ def start_sending():
 
     sending_thread = threading.Thread(
         target=run_async_worker,
-        args=(cookies_path, thread_id, filepath, time_delay, sender_name, proxy_url)
+        args=(cookies_path, thread_id, filepath, time_delay, sender_name)
     )
     sending_thread.daemon = True
     sending_thread.start()
@@ -115,11 +155,11 @@ def start_sending():
     add_log(f"🚀 Server Started by {sender_name} for Group ID: {thread_id}")
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
-def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name, proxy_url):
+def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name, proxy_url))
+        loop.run_until_complete(bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name))
     except Exception as e:
         add_log(f"❌ Critical Thread Error: {str(e)}")
     finally:
@@ -128,17 +168,16 @@ def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name, prox
         server_state["status"] = "Idle"
         add_log("💤 Server thread stopped.")
 
-async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name, proxy_url):
+async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name):
     bot = None
     try:
-        # ✅ PROXY SETUP (Agar proxy daali hai toh Render ka IP change ho jayega)
-        if proxy_url:
-            add_log(f"🌐 Setting Proxy: {proxy_url[:15]}...")
-            os.environ['HTTP_PROXY'] = proxy_url
-            os.environ['HTTPS_PROXY'] = proxy_url
-        else:
-            add_log("⚠️ Bina Proxy ke chal raha hai. Render IP block ho sakta hai.")
-
+        # ✅ AUTO PROXY SETUP
+        working_proxy = get_working_proxy()
+        if working_proxy:
+            os.environ['HTTP_PROXY'] = working_proxy
+            os.environ['HTTPS_PROXY'] = working_proxy
+            add_log("🌐 Proxy set successfully! Render IP bypassed.")
+        
         add_log("🔐 Logging into Facebook...")
         bot = Client(cookies_file_path=cookies_path)
         await bot.start()
