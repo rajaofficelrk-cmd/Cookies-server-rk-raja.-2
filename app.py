@@ -46,8 +46,15 @@ def parse_cookies(cookie_input):
         if cookies: return cookies
     raise ValueError("Invalid cookie format.")
 
+# ==========================================
+# 🌐 ROUTES
+# ==========================================
 @app.route('/')
 def index(): return render_template('index.html')
+
+# ✅ NEW: Ping route for UptimeRobot (Render ko jaga rakhne ke liye)
+@app.route('/ping')
+def ping(): return "OK", 200
 
 @app.route('/api/status', methods=['GET'])
 def get_status(): return jsonify(server_state)
@@ -57,7 +64,7 @@ def stop_sending():
     if not server_state["is_running"]: return jsonify({"status": "error", "message": "Server pehle se band hai."})
     stop_event.set()
     server_state["status"] = "Stopping..."
-    add_log("🛑 STOP signal received.")
+    add_log("🛑 STOP signal received. User ne server roka hai.")
     return jsonify({"status": "success", "message": "Stop signal bhej diya gaya."})
 
 @app.route('/api/start', methods=['POST'])
@@ -111,6 +118,9 @@ def start_sending():
     add_log(f"🚀 Server Started by {sender_name} for {thread_id}")
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
+# ==========================================
+# ⚙️ BACKGROUND WORKER
+# ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -131,18 +141,6 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
         bot = Client(cookies_file_path=cookies_path)
         await bot.start()
         add_log(f"✅ Login Successful! UID: {bot.uid}")
-
-        # ✅ Group ID Verification (Timeout Fix)
-        add_log("🔍 Verifying Group Access...")
-        try:
-            thread_info = await bot.fetchThreadInfo(thread_id)
-            if not thread_info:
-                add_log("❌ ERROR: Group ID invalid hai ya account us group ka member nahi hai.")
-                server_state["status"] = "Invalid Group ID"
-                return
-            add_log(f"✅ Group Found: {thread_info[thread_id].name}")
-        except Exception as e:
-            add_log(f"⚠️ Verification warning: {e} (Proceeding anyway)")
 
         server_state["status"] = "Sending Messages..."
         
@@ -170,20 +168,17 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             
             for attempt in range(retries):
                 try:
-                    # ✅ MQTT METHOD (Fix for Group Timeout)
-                    await bot.sendMessageMqtt(final_message, thread_id, thread_type)
+                    await bot.sendMessage(final_message, thread_id, thread_type)
                     success = True
                     break
                 except Exception as e:
                     err_str = str(e).lower()
                     if "timed out" in err_str or "timeout" in err_str:
-                        add_log(f"⚠️ [{idx}/{total}] MQTT Timeout. Retry ({attempt+1}/{retries})...")
+                        add_log(f"⚠️ [{idx}/{total}] Network Timeout. Retry ({attempt+1}/{retries})...")
                         await asyncio.sleep(8)
                     else:
-                        # Fallback to HTTP if MQTT fails
-                        add_log(f"⚠️ MQTT Failed. Trying HTTP fallback...")
                         try:
-                            await bot.sendMessage(final_message, thread_id, thread_type)
+                            await bot.sendMessageMqtt(final_message, thread_id, thread_type)
                             success = True
                             break
                         except Exception as http_e:
@@ -207,10 +202,12 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             try:
                 if hasattr(bot, 'stop'): await bot.stop()
             except: pass
-        server_state["is_running"] = False
-        if not stop_event.is_set():
+        
+        if not stop_event.is_set() and server_state["total_sent"] > 0:
             server_state["status"] = "Completed"
             add_log("🎉 Saare messages bhej diye gaye!")
+        elif server_state["total_sent"] == 0 and not stop_event.is_set():
+            server_state["status"] = "Failed"
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
