@@ -30,7 +30,7 @@ def add_log(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     log_msg = f"[{timestamp}] {message}"
     server_state["logs"].append(log_msg)
-    if len(server_state["logs"]) > 150: # Last 150 logs save karega
+    if len(server_state["logs"]) > 150:
         server_state["logs"].pop(0)
     logger.info(message)
 
@@ -127,7 +127,7 @@ def start_sending():
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
 # ==========================================
-# ⚙️ BACKGROUND WORKER (The Beast)
+# ⚙️ BACKGROUND WORKER (send_message fix)
 # ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
@@ -153,15 +153,13 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
         add_log(f"✅ Login Successful! UID: {bot.uid}")
         server_state["status"] = "Sending Messages..."
 
-        # --- SMART FILE READER (Har tarah ki txt padhega) ---
+        # --- SMART FILE READER ---
         messages = []
         try:
-            # Pehle UTF-8 try karega (emojis/hindi ke liye)
             with open(filepath, 'r', encoding='utf-8-sig') as f:
                 messages = [line.strip() for line in f if line.strip()]
         except UnicodeDecodeError:
             add_log("⚠️ File format alag hai, Fallback reader use kar raha hoon...")
-            # Agar UTF-8 fail ho, toh latin-1 try karega (purane notepad ke liye)
             with open(filepath, 'r', encoding='latin-1') as f:
                 messages = [line.strip() for line in f if line.strip()]
 
@@ -177,7 +175,6 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
                 add_log("🛑 Loop stopped by user.")
                 break
 
-            # Here Name format
             final_message = f"{msg}\n\n— {sender_name}"
 
             # --- ANTI-ERROR & RETRY LOOP ---
@@ -186,22 +183,20 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             
             for attempt in range(retries):
                 try:
-                    # Message bheneja
-                    await bot.sendMessage(final_message, thread_id, thread_type)
+                    # ✅ FIX: sendMessage ki jagah send_message
+                    await bot.send_message(final_message, thread_id)
                     success = True
-                    break # Agar chala gaya toh loop se bahar
+                    break
                     
                 except Exception as e:
                     err_str = str(e).lower()
                     if "timed out" in err_str or "timeout" in err_str:
                         add_log(f"⚠️ [{idx}/{total}] Network Timeout. Retry ({attempt+1}/{retries})...")
-                        await asyncio.sleep(5) # 5 second wait karke wapas try karega
+                        await asyncio.sleep(5)
                     else:
-                        # Agar E2E ya koi aur permanent error hai, toh retry mat karo
                         add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
                         break
             
-            # Count Update
             if success:
                 server_state["total_sent"] += 1
                 add_log(f"✅ [{idx}/{total}] Sent: {msg[:30]}...")
