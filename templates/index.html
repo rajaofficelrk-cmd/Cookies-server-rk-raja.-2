@@ -3,23 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bulk Messenger Panel</title>
+    <title>💀 Bulk Messenger Panel</title>
     <style>
         :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
         body { background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; min-height: 100vh; }
         .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; box-shadow: 0 0 40px rgba(255, 0, 51, 0.1); }
         
-        /* --- Header with Image --- */
         .header-area { text-align: center; margin-bottom: 25px; display: flex; flex-direction: column; align-items: center; }
-        .header-area img { 
-            width: 120px; 
-            height: 120px; 
-            object-fit: contain; 
-            border-radius: 50%; 
-            margin-bottom: 10px; 
-            filter: drop-shadow(0 0 15px var(--accent)); 
-        }
+        .header-area img { width: 120px; height: 120px; object-fit: contain; border-radius: 50%; margin-bottom: 10px; filter: drop-shadow(0 0 15px var(--accent)); }
         .header-area p { color: #888; font-size: 0.9em; letter-spacing: 2px; text-transform: uppercase; }
         
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
@@ -35,8 +27,7 @@
         #stopBtn { background: var(--red); color: #fff; }
         button:disabled { opacity: 0.3; cursor: not-allowed; }
         
-        /* Live Terminal */
-        .terminal { margin-top: 25px; background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; height: 200px; overflow-y: auto; font-size: 13px; }
+        .terminal { margin-top: 25px; background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; height: 250px; overflow-y: auto; font-size: 13px; }
         .log-line { margin-bottom: 4px; color: #bbb; }
         .log-success { color: var(--green); }
         .log-error { color: var(--red); }
@@ -52,8 +43,8 @@
 </head>
 <body>
     <div class="container">
-        <!-- Header Image -->
         <div class="header-area">
+            <!-- Yahan apni image ka link daal lijiye -->
             <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header Icon">
             <p>Messenger Bulk Sender</p>
         </div>
@@ -121,21 +112,20 @@
         const terminal = document.getElementById('terminal');
         let pollingInterval = null;
 
-        // Terminal me log add karne ke liye
         function printLog(msg) {
             const div = document.createElement('div');
             div.className = 'log-line';
             if (msg.includes('✅') || msg.includes('🎉')) div.classList.add('log-success');
-            if (msg.includes('❌') || msg.includes('🛑')) div.classList.add('log-error');
+            if (msg.includes('❌') || msg.includes('🛑') || msg.includes('Failed')) div.classList.add('log-error');
             div.innerText = msg;
             terminal.appendChild(div);
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        // Backend se status check karna
         async function checkStatus() {
             try {
                 const res = await fetch('/api/status');
+                if (!res.ok) return; // Agar server so raha hai toh ignore karein
                 const data = await res.json();
                 
                 const badge = document.getElementById('statusBadge');
@@ -145,67 +135,63 @@
                 document.getElementById('sentCount').innerText = data.total_sent;
                 document.getElementById('failCount').innerText = data.total_failed;
 
-                // Logs print karein
                 if (data.logs && data.logs.length > 0) {
-                    terminal.innerHTML = ''; // Clear old
+                    terminal.innerHTML = ''; 
                     data.logs.forEach(log => printLog(log));
                 }
 
                 startBtn.disabled = data.is_running;
                 stopBtn.disabled = !data.is_running;
-
             } catch (err) {
-                console.log("Ping failed, Render server waking up...");
+                // Ignore fetch errors during sleep mode
             }
         }
 
-        // Start Button Logic (With Auto-Retry for Render)
         startBtn.addEventListener('click', async () => {
             if (!form.checkValidity()) { form.reportValidity(); return; }
             
             const formData = new FormData(form);
             terminal.innerHTML = '';
-            printLog("> Waking up Render server & starting process...");
+            printLog("> Sending request to Render server...");
+            printLog("> Agar server so raha hai, toh 60 second tak wait karein...");
             startBtn.disabled = true;
 
+            // Ek timeout lagaya hai taaki browser connection jaldi na toote
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 65000); // 65 seconds wait
+
             try {
-                const res = await fetch('/api/start', { method: 'POST', body: formData });
+                const res = await fetch('/api/start', { 
+                    method: 'POST', 
+                    body: formData,
+                    signal: controller.signal 
+                });
+                clearTimeout(timeoutId);
+                
                 const data = await res.json();
+                
                 if (data.status === 'error') {
                     alert(data.message);
                     startBtn.disabled = false;
                     return;
                 }
                 
+                printLog("> ✅ Server started successfully!");
                 if (!pollingInterval) pollingInterval = setInterval(checkStatus, 3000);
                 checkStatus();
+                
             } catch (err) {
-                // Render cold start handle karne ke liye 5 baar retry
-                printLog("> Server so raha hai. Waking up (Retry 1/5)...");
-                let retries = 0;
-                const retryInterval = setInterval(async () => {
-                    retries++;
-                    try {
-                        const res = await fetch('/api/start', { method: 'POST', body: formData });
-                        const data = await res.json();
-                        if (data.status === 'success') {
-                            clearInterval(retryInterval);
-                            if (!pollingInterval) pollingInterval = setInterval(checkStatus, 3000);
-                            checkStatus();
-                        }
-                    } catch (e) {
-                        printLog(`> Server waking up (Retry ${retries}/5)...`);
-                        if (retries >= 5) {
-                            clearInterval(retryInterval);
-                            printLog("> ❌ Server failed to wake up. Please try again.");
-                            startBtn.disabled = false;
-                        }
-                    }
-                }, 6000); // Har 6 second me retry
+                clearTimeout(timeoutId);
+                if (err.name === 'AbortError') {
+                    printLog("> ❌ Timeout: Render server ne 65 second mein jawab nahi diya.");
+                    printLog("> Page refresh karke wapas koshish karein.");
+                } else {
+                    printLog("> ❌ Network Error: Server se connect nahi ho paya.");
+                }
+                startBtn.disabled = false;
             }
         });
 
-        // Stop Button Logic
         stopBtn.addEventListener('click', async () => {
             stopBtn.disabled = true;
             printLog("> Sending stop signal...");
@@ -216,10 +202,9 @@
             }
         });
 
-        // Pehli baar load hote hi status check karein
         window.onload = () => {
             checkStatus();
-            pollingInterval = setInterval(checkStatus, 5000); // Har 5 sec me check karega
+            pollingInterval = setInterval(checkStatus, 5000);
         };
     </script>
 </body>
