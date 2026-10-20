@@ -3,7 +3,6 @@ import json
 import asyncio
 import threading
 import logging
-import re
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
@@ -18,18 +17,12 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # ==========================================
-# 📝 LOGGING & STATE MANAGEMENT
+# 📝 LOGGING & STATE
 # ==========================================
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-server_state = {
-    "is_running": False,
-    "status": "Idle",
-    "logs": [],
-    "total_sent": 0,
-    "total_failed": 0
-}
+server_state = {"is_running": False, "status": "Idle", "logs": [], "total_sent": 0, "total_failed": 0}
 stop_event = threading.Event()
 sending_thread = None
 
@@ -42,12 +35,10 @@ def add_log(message):
     logger.info(message)
 
 # ==========================================
-# 🍪 COOKIE PARSER (Smart Fixer)
+# 🍪 COOKIE PARSER
 # ==========================================
 def parse_cookies(cookie_input):
     cookie_input = cookie_input.strip()
-    
-    # 1. Agar pehle se valid JSON array hai
     if cookie_input.startswith('[') and cookie_input.endswith(']'):
         try:
             parsed = json.loads(cookie_input)
@@ -55,8 +46,6 @@ def parse_cookies(cookie_input):
                 return parsed
         except json.JSONDecodeError:
             pass
-            
-    # 2. Agar key=value; key=value format mein hai
     if ';' in cookie_input or '=' in cookie_input:
         cookies = []
         for pair in cookie_input.split(';'):
@@ -65,19 +54,14 @@ def parse_cookies(cookie_input):
                 cookies.append({"key": k.strip(), "value": v.strip()})
         if cookies:
             return cookies
-            
-    # 3. Agar Raw JSON list of dicts hai (bina brackets ke)
     try:
         if '"key"' in cookie_input:
-            # Format string to array
             formatted = f"[{cookie_input}]"
             parsed = json.loads(formatted)
             if isinstance(parsed, list):
                 return parsed
     except:
         pass
-
-    # Fallback Error throw
     raise ValueError("Invalid cookie format. Please paste exact C3C JSON or 'c_user=...; xs=...' text.")
 
 # ==========================================
@@ -103,7 +87,6 @@ def stop_sending():
 @app.route('/api/start', methods=['POST'])
 def start_sending():
     global sending_thread
-    
     if server_state["is_running"]:
         return jsonify({"status": "error", "message": "Server pehle se chal raha hai!"})
 
@@ -125,9 +108,7 @@ def start_sending():
         return jsonify({"status": "error", "message": "Delay kam se kam 5 seconds ka hona chahiye!"})
 
     try:
-        # --- SMART COOKIE PARSING ---
         cookies_list = parse_cookies(cookies_data)
-        
         cookies_path = os.path.join(app.config['UPLOAD_FOLDER'], 'cookies.json')
         with open(cookies_path, 'w', encoding='utf-8') as f:
             json.dump(cookies_list, f)
@@ -135,7 +116,6 @@ def start_sending():
         filename = secure_filename(message_file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         message_file.save(filepath)
-        
     except ValueError as ve:
         return jsonify({"status": "error", "message": str(ve)})
     except Exception as e:
@@ -161,7 +141,7 @@ def start_sending():
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
 # ==========================================
-# ⚙️ BACKGROUND WORKER
+# ⚙️ BACKGROUND WORKER (Fixed for v1.2.2)
 # ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
@@ -180,7 +160,15 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
     bot = None
     try:
         add_log("🔐 Logging into Facebook...")
-        bot = await Client.startSession(cookies_path)
+        
+        # --- NAYA TARIKA (v1.2.2) ---
+        # Agar startSession available hai toh fallback use karein, warna naya Client use karein
+        if hasattr(Client, 'startSession'):
+            bot = await Client.startSession(cookies_path)
+        else:
+            # Naya version: Client ko direct async with me use karein
+            bot = Client(cookies_file_path=cookies_path)
+            await bot.connect()  # Connection initiate karein
         
         if not await bot.isLoggedIn():
             add_log("❌ Login Failed! Cookies expire ho gayi hain.")
@@ -209,6 +197,7 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             final_message = f"{msg}\n\n— {sender_name}"
 
             try:
+                # Message bhejne ke liye sendMessage use karein (jo dono versions me hai)
                 await bot.sendMessage(final_message, thread_id, thread_type)
                 server_state["total_sent"] += 1
                 add_log(f"✅ [{idx}/{total}] Sent: {msg[:30]}...")
@@ -224,8 +213,14 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
         add_log(f"❌ System Error: {str(e)}")
     finally:
         if bot:
-            try: await bot.stop()
-            except: pass
+            try:
+                # Connection close karein
+                if hasattr(bot, 'stop'):
+                    await bot.stop()
+                elif hasattr(bot, 'disconnect'):
+                    await bot.disconnect()
+            except: 
+                pass
         server_state["is_running"] = False
         if not stop_event.is_set():
             server_state["status"] = "Completed"
