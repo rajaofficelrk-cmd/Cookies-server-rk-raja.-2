@@ -13,7 +13,7 @@ from fbchat_muqit import Client, ThreadType
 # ==========================================
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB tak ki file allowed
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # ==========================================
@@ -30,7 +30,7 @@ def add_log(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     log_msg = f"[{timestamp}] {message}"
     server_state["logs"].append(log_msg)
-    if len(server_state["logs"]) > 100:
+    if len(server_state["logs"]) > 150: # Last 150 logs save karega
         server_state["logs"].pop(0)
     logger.info(message)
 
@@ -39,15 +39,11 @@ def add_log(message):
 # ==========================================
 def parse_cookies(cookie_input):
     cookie_input = cookie_input.strip()
-    
-    # Agar JSON array hai
     if cookie_input.startswith('[') and cookie_input.endswith(']'):
         try:
             parsed = json.loads(cookie_input)
             if isinstance(parsed, list): return parsed
         except: pass
-            
-    # Agar string format hai (c_user=...; xs=...)
     if ';' in cookie_input or '=' in cookie_input:
         cookies = []
         for pair in cookie_input.split(';'):
@@ -55,8 +51,7 @@ def parse_cookies(cookie_input):
                 k, v = pair.split('=', 1)
                 cookies.append({"key": k.strip(), "value": v.strip()})
         if cookies: return cookies
-        
-    raise ValueError("Invalid cookie format. Paste JSON or c_user=...; xs=... format.")
+    raise ValueError("Invalid cookie format.")
 
 # ==========================================
 # 🌐 ROUTES
@@ -75,7 +70,7 @@ def stop_sending():
         return jsonify({"status": "error", "message": "Server pehle se band hai."})
     stop_event.set()
     server_state["status"] = "Stopping..."
-    add_log("🛑 STOP signal received.")
+    add_log("🛑 STOP signal received. Ruk raha hai...")
     return jsonify({"status": "success", "message": "Stop signal bhej diya gaya."})
 
 @app.route('/api/start', methods=['POST'])
@@ -91,9 +86,8 @@ def start_sending():
     sender_name = request.form.get('sender_name', 'Unknown').strip()
     message_file = request.files.get('message_file')
 
-    if not cookies_data: return jsonify({"status": "error", "message": "Cookies required!"})
-    if not thread_id: return jsonify({"status": "error", "message": "Group UID required!"})
-    if not message_file: return jsonify({"status": "error", "message": "Message File required!"})
+    if not cookies_data or not thread_id or not message_file:
+        return jsonify({"status": "error", "message": "Saari fields bharna zaroori hai!"})
     
     try:
         time_delay = int(time_delay)
@@ -110,8 +104,6 @@ def start_sending():
         filename = secure_filename(message_file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         message_file.save(filepath)
-    except ValueError as ve:
-        return jsonify({"status": "error", "message": str(ve)})
     except Exception as e:
         return jsonify({"status": "error", "message": f"File save error: {str(e)}"})
 
@@ -135,7 +127,7 @@ def start_sending():
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
 # ==========================================
-# ⚙️ DYNAMIC BACKGROUND WORKER (Anti-Error)
+# ⚙️ BACKGROUND WORKER (The Beast)
 # ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
@@ -155,74 +147,68 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
     try:
         add_log("🔐 Logging into Facebook...")
         
-        # --- DYNAMIC LOGIN SYSTEM (Har version ke liye) ---
-        try:
-            bot = Client(cookies_file_path=cookies_path)
-        except TypeError:
-            with open(cookies_path, 'r') as f:
-                cookies_dict = json.load(f)
-            bot = Client(cookies=cookies_dict)
-
-        # Start/Login function dhoondein
-        if hasattr(bot, 'start'):
-            await bot.start()
-        elif hasattr(bot, 'connect'):
-            await bot.connect()
-        elif hasattr(bot, 'login'):
-            await bot.login()
-        elif hasattr(Client, 'startSession'):
-            bot = await Client.startSession(cookies_path)
-        else:
-            raise Exception("Library mein koi valid login method nahi mila.")
-
-        # Agar login fail hua toh UID nahi milega
-        if not getattr(bot, 'uid', None):
-            add_log("❌ Login Failed! Cookies expire ho gayi hain ya account checkpoint mein hai.")
-            server_state["status"] = "Login Failed"
-            return
-            
+        bot = Client(cookies_file_path=cookies_path)
+        await bot.start()
+        
         add_log(f"✅ Login Successful! UID: {bot.uid}")
         server_state["status"] = "Sending Messages..."
 
-        with open(filepath, 'r', encoding='utf-8') as f:
-            messages = [line.strip() for line in f if line.strip()]
+        # --- SMART FILE READER (Har tarah ki txt padhega) ---
+        messages = []
+        try:
+            # Pehle UTF-8 try karega (emojis/hindi ke liye)
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
+                messages = [line.strip() for line in f if line.strip()]
+        except UnicodeDecodeError:
+            add_log("⚠️ File format alag hai, Fallback reader use kar raha hoon...")
+            # Agar UTF-8 fail ho, toh latin-1 try karega (purane notepad ke liye)
+            with open(filepath, 'r', encoding='latin-1') as f:
+                messages = [line.strip() for line in f if line.strip()]
 
         total = len(messages)
         if total == 0:
             add_log("⚠️ File khali hai.")
-            server_state["status"] = "File Empty"
             return
 
-        add_log(f"📁 Total {total} messages to send. Delay: {delay}s")
+        add_log(f"📁 Total {total} messages mil gaye. Delay: {delay}s")
 
         for idx, msg in enumerate(messages, 1):
             if stop_event.is_set():
                 add_log("🛑 Loop stopped by user.")
                 break
 
+            # Here Name format
             final_message = f"{msg}\n\n— {sender_name}"
 
-            try:
-                # --- DYNAMIC SEND SYSTEM (Har version ke liye) ---
-                if hasattr(bot, 'send_message'):
-                    try:
-                        # Naya tarika (keyword arguments ke sath)
-                        await bot.send_message(text=final_message, thread_id=thread_id, thread_type=thread_type)
-                    except TypeError:
-                        # Naya tarika (bina keyword ke)
-                        await bot.send_message(final_message, thread_id)
-                elif hasattr(bot, 'sendMessage'):
-                    # Purana tarika
+            # --- ANTI-ERROR & RETRY LOOP ---
+            success = False
+            retries = 3
+            
+            for attempt in range(retries):
+                try:
+                    # Message bheneja
                     await bot.sendMessage(final_message, thread_id, thread_type)
-                else:
-                    raise Exception("Message bhejne ka koi function nahi mila.")
-
+                    success = True
+                    break # Agar chala gaya toh loop se bahar
+                    
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "timed out" in err_str or "timeout" in err_str:
+                        add_log(f"⚠️ [{idx}/{total}] Network Timeout. Retry ({attempt+1}/{retries})...")
+                        await asyncio.sleep(5) # 5 second wait karke wapas try karega
+                    else:
+                        # Agar E2E ya koi aur permanent error hai, toh retry mat karo
+                        add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
+                        break
+            
+            # Count Update
+            if success:
                 server_state["total_sent"] += 1
                 add_log(f"✅ [{idx}/{total}] Sent: {msg[:30]}...")
-            except Exception as e:
+            else:
                 server_state["total_failed"] += 1
-                add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
             
+            # --- USER SET DELAY LOOP ---
             for _ in range(delay):
                 if stop_event.is_set(): break
                 await asyncio.sleep(1)
@@ -233,12 +219,11 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
         if bot:
             try:
                 if hasattr(bot, 'stop'): await bot.stop()
-                elif hasattr(bot, 'disconnect'): await bot.disconnect()
             except: pass
         server_state["is_running"] = False
         if not stop_event.is_set():
             server_state["status"] = "Completed"
-            add_log("🎉 All messages processed successfully!")
+            add_log("🎉 Saare messages bhej diye gaye!")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
