@@ -46,13 +46,9 @@ def parse_cookies(cookie_input):
         if cookies: return cookies
     raise ValueError("Invalid cookie format.")
 
-# ==========================================
-# 🌐 ROUTES
-# ==========================================
 @app.route('/')
 def index(): return render_template('index.html')
 
-# ✅ NEW: Ping route for UptimeRobot (Render ko jaga rakhne ke liye)
 @app.route('/ping')
 def ping(): return "OK", 200
 
@@ -118,9 +114,6 @@ def start_sending():
     add_log(f"🚀 Server Started by {sender_name} for {thread_id}")
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
-# ==========================================
-# ⚙️ BACKGROUND WORKER
-# ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -168,22 +161,28 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
             
             for attempt in range(retries):
                 try:
-                    await bot.sendMessage(final_message, thread_id, thread_type)
+                    # ✅ SAHI SPELLING: sendMessageMqqtt (double q, double t)
+                    await bot.sendMessageMqqtt(final_message, thread_id, thread_type)
                     success = True
                     break
+                except AttributeError:
+                    # Agar MQTT method nahi mila toh seedha HTTP fallback
+                    add_log(f"⚠️ MQTT method nahi mila, HTTP fallback use kar raha hoon...")
+                    try:
+                        await bot.sendMessage(final_message, thread_id, thread_type)
+                        success = True
+                        break
+                    except Exception as e:
+                        add_log(f"❌ [{idx}/{total}] HTTP Failed: {str(e)}")
+                        break
                 except Exception as e:
                     err_str = str(e).lower()
                     if "timed out" in err_str or "timeout" in err_str:
                         add_log(f"⚠️ [{idx}/{total}] Network Timeout. Retry ({attempt+1}/{retries})...")
                         await asyncio.sleep(8)
                     else:
-                        try:
-                            await bot.sendMessageMqtt(final_message, thread_id, thread_type)
-                            success = True
-                            break
-                        except Exception as http_e:
-                            add_log(f"❌ [{idx}/{total}] Failed: {str(http_e)}")
-                            break
+                        add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
+                        break
             
             if success:
                 server_state["total_sent"] += 1
