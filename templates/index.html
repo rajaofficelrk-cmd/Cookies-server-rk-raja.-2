@@ -3,15 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💀 Bulk Messenger Panel</title>
+    <title>Bulk Messenger Panel</title>
     <style>
         :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
         body { background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; min-height: 100vh; }
         .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; box-shadow: 0 0 40px rgba(255, 0, 51, 0.1); }
         
-        .header-area { text-align: center; margin-bottom: 25px; }
-        .header-area h1 { font-size: 3em; text-shadow: 0 0 20px var(--accent); margin-bottom: 5px; }
+        /* --- Header with Image --- */
+        .header-area { text-align: center; margin-bottom: 25px; display: flex; flex-direction: column; align-items: center; }
+        .header-area img { 
+            width: 120px; 
+            height: 120px; 
+            object-fit: contain; 
+            border-radius: 50%; 
+            margin-bottom: 10px; 
+            filter: drop-shadow(0 0 15px var(--accent)); 
+        }
         .header-area p { color: #888; font-size: 0.9em; letter-spacing: 2px; text-transform: uppercase; }
         
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
@@ -44,8 +52,9 @@
 </head>
 <body>
     <div class="container">
+        <!-- Header Image -->
         <div class="header-area">
-            <h1>💀</h1>
+            <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header Icon">
             <p>Messenger Bulk Sender</p>
         </div>
 
@@ -126,7 +135,6 @@
         // Backend se status check karna
         async function checkStatus() {
             try {
-                // Render sleep mode se jagane ke liye ping
                 const res = await fetch('/api/status');
                 const data = await res.json();
                 
