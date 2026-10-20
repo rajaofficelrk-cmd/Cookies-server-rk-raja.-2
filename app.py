@@ -124,48 +124,6 @@ def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name):
         server_state["status"] = "Idle"
         add_log("💤 Server thread stopped.")
 
-# ==========================================
-# 🚀 UNIVERSAL SEND FUNCTION (Har version ke liye)
-# ==========================================
-async def universal_send(bot, text, thread_id):
-    thread_type = ThreadType.GROUP
-    
-    # Try 1: Newest Method
-    if hasattr(bot, 'send_message'):
-        try:
-            await bot.send_message(text=text, thread_id=thread_id)
-            return True
-        except Exception as e:
-            if "timed out" in str(e).lower(): raise e
-            
-    # Try 2: Standard Method
-    if hasattr(bot, 'sendMessage'):
-        try:
-            await bot.sendMessage(text, thread_id, thread_type)
-            return True
-        except Exception as e:
-            if "timed out" in str(e).lower(): raise e
-
-    # Try 3: MQTT Methods
-    for method_name in ['sendMessageMqqtt', 'sendMessageMqtt']:
-        if hasattr(bot, method_name):
-            try:
-                method = getattr(bot, method_name)
-                await method(text, thread_id, thread_type)
-                return True
-            except Exception as e:
-                if "timed out" in str(e).lower(): raise e
-
-    # Try 4: Generic send
-    if hasattr(bot, 'send'):
-        try:
-            await bot.send(text, thread_id)
-            return True
-        except Exception as e:
-            if "timed out" in str(e).lower(): raise e
-            
-    raise Exception("Library mein koi valid message sending function nahi mila.")
-
 async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name):
     bot = None
     try:
@@ -173,6 +131,21 @@ async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_nam
         bot = Client(cookies_file_path=cookies_path)
         await bot.start()
         add_log(f"✅ Login Successful! UID: {bot.uid}")
+
+        add_log("🔍 Verifying Group ID (Facebook se check kar raha hoon)...")
+        try:
+            # Group ID Verify Karna (Agar ye fail hua toh matlab ID galat hai)
+            thread_info = await bot.fetchThreadInfo(thread_id)
+            if not thread_info or thread_id not in thread_info:
+                add_log("❌ ERROR: Ye ID kisi Group ki nahi hai. Kripya sahi Group ID daalein.")
+                server_state["status"] = "Invalid ID"
+                return
+            add_log(f"✅ Group Verified: {thread_info[thread_id].name}")
+        except Exception as e:
+            add_log(f"❌ ID Verification Failed: {str(e)}")
+            add_log("💡 Sahi Group ID nikaalein: facebook.com/groups/ YAHAN-NUMBER /")
+            server_state["status"] = "Invalid ID"
+            return
 
         server_state["status"] = "Sending Messages..."
         
@@ -194,18 +167,17 @@ async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_nam
                 add_log("🛑 Loop stopped by user.")
                 break
 
-            # Here Name formatting
             final_message = f"{msg}\n\n— {sender_name}"
             success = False
             
             try:
-                # ✅ 15 SECOND HARD TIMEOUT (Server hang nahi hoga)
-                await asyncio.wait_for(universal_send(bot, final_message, thread_id), timeout=15.0)
+                # Timeout 20 second kar diya hai
+                await asyncio.wait_for(bot.sendMessage(final_message, thread_id, ThreadType.GROUP), timeout=20.0)
                 success = True
             except asyncio.TimeoutError:
-                add_log(f"⏭️ [{idx}/{total}] Timeout (15s). Skip kar raha hoon...")
+                add_log(f"⏭️ [{idx}/{total}] Timeout (20s). Account restricted ho sakta hai.")
             except Exception as e:
-                add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
+                add_log(f"❌ [{idx}/{total}] Error: {str(e)}")
             
             if success:
                 server_state["total_sent"] += 1
@@ -213,7 +185,6 @@ async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_nam
             else:
                 server_state["total_failed"] += 1
             
-            # Delay for next message
             if not stop_event.is_set() and idx < total:
                 for _ in range(delay):
                     if stop_event.is_set(): break
