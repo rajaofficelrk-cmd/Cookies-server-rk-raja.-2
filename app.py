@@ -17,10 +17,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max
 
 # --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Global State ---
@@ -121,10 +118,7 @@ def stop_sending():
 @app.route('/status', methods=['GET'])
 def get_status():
     global is_running, current_status
-    return jsonify({
-        "is_running": is_running,
-        "status": current_status
-    })
+    return jsonify({"is_running": is_running, "status": current_status})
 
 def run_async_sender(cookies_path, thread_id, thread_type, file_path, delay, sender_name):
     global is_running, current_status
@@ -143,51 +137,46 @@ async def send_bulk(cookies_path, thread_id, thread_type, file_path, delay, send
     bot = None
     try:
         current_status = "Logging in..."
-        logger.info(f"Login attempt with cookies: {cookies_path}")
-        
         bot = await Client.startSession(cookies_path)
+        
         if not await bot.isLoggedIn():
             logger.error("Login failed. Cookies invalid or expired.")
             current_status = "Login failed"
             return
         
-        logger.info(f"Login successful. Bot UID: {bot.uid}")
         current_status = "Logged in. Sending messages..."
         
         with open(file_path, 'r', encoding='utf-8') as f:
             messages = [line.strip() for line in f if line.strip()]
         
         if not messages:
-            logger.warning("Message file khali hai.")
             current_status = "File khali hai"
             return
         
         total = len(messages)
-        logger.info(f"Total messages to send: {total}")
         
         for idx, msg in enumerate(messages, 1):
             if stop_event.is_set():
-                logger.info("Stop event detected. Breaking loop.")
                 break
             
+            # --- YAHAN SENDER NAME ADD HO RAHA HAI ---
+            final_message = f"{msg}\n\n— {sender_name}"
+            
             try:
-                await bot.sendMessage(msg, thread_id, thread_type)
-                logger.info(f"[{idx}/{total}] Sent: {msg[:50]}...")
+                await bot.sendMessage(final_message, thread_id, thread_type)
+                logger.info(f"[{idx}/{total}] Sent by {sender_name}: {msg[:30]}...")
                 current_status = f"Sent {idx}/{total}"
             except Exception as e:
                 logger.error(f"Error sending message {idx}: {e}")
                 current_status = f"Error at {idx}"
             
-            # Delay with stop check
+            # Delay check
             for _ in range(delay):
                 if stop_event.is_set():
                     break
                 await asyncio.sleep(1)
         
-        if stop_event.is_set():
-            current_status = "Stopped by user"
-        else:
-            current_status = "Completed"
+        current_status = "Completed" if not stop_event.is_set() else "Stopped by user"
         
     except Exception as e:
         logger.error(f"System error: {e}")
@@ -196,12 +185,12 @@ async def send_bulk(cookies_path, thread_id, thread_type, file_path, delay, send
         if bot:
             try:
                 await bot.stop()
-                logger.info("Bot session closed.")
-            except Exception as e:
-                logger.error(f"Error closing bot: {e}")
+            except Exception:
+                pass
         stop_event.clear()
         is_running = False
-        current_status = "Idle" if current_status == "Completed" else current_status
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    # Render deployment ke liye PORT setting
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
