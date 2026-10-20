@@ -3,7 +3,7 @@ import json
 import asyncio
 import threading
 import logging
-import base64
+import re
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
@@ -14,7 +14,7 @@ from fbchat_muqit import Client, ThreadType
 # ==========================================
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max limit
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # ==========================================
@@ -23,7 +23,6 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Global State for Server
 server_state = {
     "is_running": False,
     "status": "Idle",
@@ -38,9 +37,48 @@ def add_log(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     log_msg = f"[{timestamp}] {message}"
     server_state["logs"].append(log_msg)
-    if len(server_state["logs"]) > 100:  # Keep only last 100 logs to save memory
+    if len(server_state["logs"]) > 100:
         server_state["logs"].pop(0)
     logger.info(message)
+
+# ==========================================
+# 🍪 COOKIE PARSER (Smart Fixer)
+# ==========================================
+def parse_cookies(cookie_input):
+    cookie_input = cookie_input.strip()
+    
+    # 1. Agar pehle se valid JSON array hai
+    if cookie_input.startswith('[') and cookie_input.endswith(']'):
+        try:
+            parsed = json.loads(cookie_input)
+            if isinstance(parsed, list) and len(parsed) > 0 and 'key' in parsed[0]:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+            
+    # 2. Agar key=value; key=value format mein hai
+    if ';' in cookie_input or '=' in cookie_input:
+        cookies = []
+        for pair in cookie_input.split(';'):
+            if '=' in pair:
+                k, v = pair.split('=', 1)
+                cookies.append({"key": k.strip(), "value": v.strip()})
+        if cookies:
+            return cookies
+            
+    # 3. Agar Raw JSON list of dicts hai (bina brackets ke)
+    try:
+        if '"key"' in cookie_input:
+            # Format string to array
+            formatted = f"[{cookie_input}]"
+            parsed = json.loads(formatted)
+            if isinstance(parsed, list):
+                return parsed
+    except:
+        pass
+
+    # Fallback Error throw
+    raise ValueError("Invalid cookie format. Please paste exact C3C JSON or 'c_user=...; xs=...' text.")
 
 # ==========================================
 # 🌐 ROUTES
@@ -55,23 +93,20 @@ def get_status():
 
 @app.route('/api/stop', methods=['POST'])
 def stop_sending():
-    global server_state
     if not server_state["is_running"]:
         return jsonify({"status": "error", "message": "Server pehle se band hai."})
-    
     stop_event.set()
     server_state["status"] = "Stopping..."
-    add_log("🛑 STOP signal received. Finishing current message...")
+    add_log("🛑 STOP signal received.")
     return jsonify({"status": "success", "message": "Stop signal bhej diya gaya."})
 
 @app.route('/api/start', methods=['POST'])
 def start_sending():
-    global sending_thread, server_state
+    global sending_thread
     
     if server_state["is_running"]:
         return jsonify({"status": "error", "message": "Server pehle se chal raha hai!"})
 
-    # 1. Data Receive Karein
     cookies_data = request.form.get('cookies', '').strip()
     thread_id = request.form.get('thread_id', '').strip()
     thread_type_str = request.form.get('thread_type', 'GROUP').upper()
@@ -79,7 +114,6 @@ def start_sending():
     sender_name = request.form.get('sender_name', 'Unknown').strip()
     message_file = request.files.get('message_file')
 
-    # 2. Strict Validation
     if not cookies_data: return jsonify({"status": "error", "message": "Cookies required!"})
     if not thread_id: return jsonify({"status": "error", "message": "Group UID required!"})
     if not message_file: return jsonify({"status": "error", "message": "Message File required!"})
@@ -90,22 +124,23 @@ def start_sending():
     except ValueError:
         return jsonify({"status": "error", "message": "Delay kam se kam 5 seconds ka hona chahiye!"})
 
-    # 3. File & Cookies Save Karein
     try:
-        # Save Cookies
-        cookies_path = os.path.join(app.config['UPLOAD_FOLDER'], 'cookies.json')
-        parsed_cookies = json.loads(cookies_data)
-        with open(cookies_path, 'w', encoding='utf-8') as f:
-            json.dump(parsed_cookies, f)
+        # --- SMART COOKIE PARSING ---
+        cookies_list = parse_cookies(cookies_data)
         
-        # Save Message File
+        cookies_path = os.path.join(app.config['UPLOAD_FOLDER'], 'cookies.json')
+        with open(cookies_path, 'w', encoding='utf-8') as f:
+            json.dump(cookies_list, f)
+        
         filename = secure_filename(message_file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         message_file.save(filepath)
+        
+    except ValueError as ve:
+        return jsonify({"status": "error", "message": str(ve)})
     except Exception as e:
         return jsonify({"status": "error", "message": f"File save error: {str(e)}"})
 
-    # 4. Reset State & Start Thread
     stop_event.clear()
     server_state["is_running"] = True
     server_state["status"] = "Starting Bot..."
@@ -126,7 +161,7 @@ def start_sending():
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
 # ==========================================
-# ⚙️ BACKGROUND WORKER (The Core Logic)
+# ⚙️ BACKGROUND WORKER
 # ==========================================
 def run_async_worker(cookies_path, thread_id, thread_type, filepath, delay, sender_name):
     loop = asyncio.new_event_loop()
@@ -155,7 +190,6 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
         add_log(f"✅ Login Successful! UID: {bot.uid}")
         server_state["status"] = "Sending Messages..."
 
-        # Read File Line by Line
         with open(filepath, 'r', encoding='utf-8') as f:
             messages = [line.strip() for line in f if line.strip()]
 
@@ -172,7 +206,6 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
                 add_log("🛑 Loop stopped by user.")
                 break
 
-            # Format Message with Here Name
             final_message = f"{msg}\n\n— {sender_name}"
 
             try:
@@ -183,10 +216,8 @@ async def bulk_sender_logic(cookies_path, thread_id, thread_type, filepath, dela
                 server_state["total_failed"] += 1
                 add_log(f"❌ [{idx}/{total}] Failed: {str(e)}")
             
-            # Smart Delay (Stop check karte hue)
             for _ in range(delay):
-                if stop_event.is_set():
-                    break
+                if stop_event.is_set(): break
                 await asyncio.sleep(1)
 
     except Exception as e:
