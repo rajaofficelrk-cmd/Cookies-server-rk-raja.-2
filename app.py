@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import asyncio
 import threading
@@ -69,13 +70,16 @@ def start_sending():
     if server_state["is_running"]: return jsonify({"status": "error", "message": "Server pehle se chal raha hai!"})
 
     cookies_data = request.form.get('cookies', '').strip()
-    thread_id = request.form.get('thread_id', '').strip()
+    raw_thread_id = request.form.get('thread_id', '').strip()
     time_delay = request.form.get('time_delay', '10')
     sender_name = request.form.get('sender_name', 'Unknown').strip()
+    proxy_url = request.form.get('proxy_url', '').strip() # Naya Proxy Input
     message_file = request.files.get('message_file')
 
-    if not cookies_data or not thread_id or not message_file:
+    if not cookies_data or not raw_thread_id or not message_file:
         return jsonify({"status": "error", "message": "Saari fields bharna zaroori hai!"})
+
+    thread_id = ''.join(filter(str.isdigit, raw_thread_id))
     
     try:
         time_delay = int(time_delay)
@@ -103,19 +107,19 @@ def start_sending():
 
     sending_thread = threading.Thread(
         target=run_async_worker,
-        args=(cookies_path, thread_id, filepath, time_delay, sender_name)
+        args=(cookies_path, thread_id, filepath, time_delay, sender_name, proxy_url)
     )
     sending_thread.daemon = True
     sending_thread.start()
     
-    add_log(f"🚀 Server Started by {sender_name} for {thread_id}")
+    add_log(f"🚀 Server Started by {sender_name} for Group ID: {thread_id}")
     return jsonify({"status": "success", "message": "Server chalu ho gaya!"})
 
-def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name):
+def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name, proxy_url):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name))
+        loop.run_until_complete(bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name, proxy_url))
     except Exception as e:
         add_log(f"❌ Critical Thread Error: {str(e)}")
     finally:
@@ -124,28 +128,21 @@ def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name):
         server_state["status"] = "Idle"
         add_log("💤 Server thread stopped.")
 
-async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name):
+async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name, proxy_url):
     bot = None
     try:
+        # ✅ PROXY SETUP (Agar proxy daali hai toh Render ka IP change ho jayega)
+        if proxy_url:
+            add_log(f"🌐 Setting Proxy: {proxy_url[:15]}...")
+            os.environ['HTTP_PROXY'] = proxy_url
+            os.environ['HTTPS_PROXY'] = proxy_url
+        else:
+            add_log("⚠️ Bina Proxy ke chal raha hai. Render IP block ho sakta hai.")
+
         add_log("🔐 Logging into Facebook...")
         bot = Client(cookies_file_path=cookies_path)
         await bot.start()
         add_log(f"✅ Login Successful! UID: {bot.uid}")
-
-        add_log("🔍 Verifying Group ID (Facebook se check kar raha hoon)...")
-        try:
-            # Group ID Verify Karna (Agar ye fail hua toh matlab ID galat hai)
-            thread_info = await bot.fetchThreadInfo(thread_id)
-            if not thread_info or thread_id not in thread_info:
-                add_log("❌ ERROR: Ye ID kisi Group ki nahi hai. Kripya sahi Group ID daalein.")
-                server_state["status"] = "Invalid ID"
-                return
-            add_log(f"✅ Group Verified: {thread_info[thread_id].name}")
-        except Exception as e:
-            add_log(f"❌ ID Verification Failed: {str(e)}")
-            add_log("💡 Sahi Group ID nikaalein: facebook.com/groups/ YAHAN-NUMBER /")
-            server_state["status"] = "Invalid ID"
-            return
 
         server_state["status"] = "Sending Messages..."
         
@@ -167,15 +164,15 @@ async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_nam
                 add_log("🛑 Loop stopped by user.")
                 break
 
-            final_message = f"{msg}\n\n— {sender_name}"
+            final_message = f"{msg}\n— {sender_name}"
             success = False
             
             try:
-                # Timeout 20 second kar diya hai
-                await asyncio.wait_for(bot.sendMessage(final_message, thread_id, ThreadType.GROUP), timeout=20.0)
+                # 10 Second timeout
+                await asyncio.wait_for(bot.sendMessage(final_message, thread_id, ThreadType.GROUP), timeout=10.0)
                 success = True
             except asyncio.TimeoutError:
-                add_log(f"⏭️ [{idx}/{total}] Timeout (20s). Account restricted ho sakta hai.")
+                add_log(f"⏭️ [{idx}/{total}] Timeout. Skip...")
             except Exception as e:
                 add_log(f"❌ [{idx}/{total}] Error: {str(e)}")
             
@@ -200,7 +197,7 @@ async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_nam
         
         if not stop_event.is_set() and server_state["total_sent"] > 0:
             server_state["status"] = "Completed"
-            add_log("🎉 Saare messages bhej diye gaye!")
+            add_log("🎉 Process complete!")
         elif server_state["total_sent"] == 0 and not stop_event.is_set():
             server_state["status"] = "Failed"
 
