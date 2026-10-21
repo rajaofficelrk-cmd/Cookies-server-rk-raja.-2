@@ -22,7 +22,6 @@ let serverState = {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// UI files serve karne ke liye
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -48,7 +47,6 @@ app.post('/api/stop', (req, res) => {
     res.json({ status: "success", message: "Stop signal bhej diya gaya." });
 });
 
-// Start route (No Auth, No Proxy)
 app.post('/api/start', upload.single('message_file'), async (req, res) => {
     if (serverState.isRunning) {
         return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
@@ -72,13 +70,12 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
 
-    // Background process start karein
     runSenderProcess(cookies, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
 async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePath) {
     let api;
-    let mqttListener = null; // MQTT listener ko track karne ke liye
+    let mqttInstance = null;
 
     try {
         let appState = [];
@@ -94,7 +91,6 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
 
         addLog("🔐 Logging into Facebook...");
         
-        // Login
         api = await new Promise((resolve, reject) => {
             login({ appState: appState }, (err, api) => {
                 if (err) return reject(err);
@@ -104,17 +100,36 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
 
         addLog(`✅ Login Successful! UID: ${api.getCurrentUserID()}`);
 
-        // ✅ MQTT INITIALIZATION (Yeh line add karni hai)
+        // ✅ MQTT INITIALIZATION WITH READY EVENT
         addLog("📡 Initializing MQTT listener...");
-        api.setOptions({ listenEvents: true }); // Event listening enable karein
-        mqttListener = api.listenMqtt((err, event) => {
-            if (err) {
-                addLog(`⚠️ MQTT Listener Error: ${err.message}`);
-                return;
-            }
-            // Hum incoming messages ignore kar rahe hain, sirf MQTT client ko active rakhna hai
+        api.setOptions({ listenEvents: true, emitReady: true }); // emitReady true karein
+        
+        // EventEmitter style use karein
+        mqttInstance = api.listenMqtt();
+        
+        // 'ready' event ka wait karein (max 10 second)
+        await new Promise((resolve, reject) => {
+            let isReady = false;
+            const timeout = setTimeout(() => {
+                if (!isReady) reject(new Error("MQTT connection timeout (10s)"));
+            }, 10000);
+
+            mqttInstance.on("ready", () => {
+                isReady = true;
+                clearTimeout(timeout);
+                addLog("✅ MQTT Client Ready!");
+                resolve();
+            });
+
+            mqttInstance.on("error", (err) => {
+                if (!isReady) {
+                    clearTimeout(timeout);
+                    reject(err);
+                } else {
+                    addLog(`⚠️ MQTT Error: ${err.message}`);
+                }
+            });
         });
-        addLog("✅ MQTT Listener initialized.");
 
         serverState.status = "Sending Messages...";
 
@@ -136,7 +151,6 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
             const finalMessage = `${messages[i]}\n— ${senderName}`;
 
             try {
-                // Message send karein
                 await new Promise((resolve, reject) => {
                     api.sendMessage(finalMessage, threadId, (err) => {
                         if (err) return reject(err);
@@ -160,17 +174,16 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
         addLog(`❌ System Error: ${error.message}`);
         serverState.status = "Failed";
     } finally {
-        // MQTT listener ko band karein (agar exist karta hai)
-        if (mqttListener && typeof mqttListener.stopListeningAsync === 'function') {
+        // MQTT cleanup
+        if (mqttInstance && typeof mqttInstance.stopListeningAsync === 'function') {
             try {
-                await mqttListener.stopListeningAsync();
+                await mqttInstance.stopListeningAsync();
                 addLog("📡 MQTT Listener stopped.");
             } catch (e) {
-                addLog(`⚠️ Error stopping MQTT listener: ${e.message}`);
+                addLog(`⚠️ Error stopping MQTT: ${e.message}`);
             }
         }
 
-        // Temp file delete karein
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         
         serverState.isRunning = false;
