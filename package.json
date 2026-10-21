@@ -1,7 +1,7 @@
 {
   "name": "fb-bulk-sender",
   "version": "1.0.0",
-  "description": "Facebook Bulk Sender using fca-unofficial",
+  "description": "Facebook Bulk Sender",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,7 +9,6 @@
   "dependencies": {
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
-    "@dongdev/fca-unofficial": "^4.0.3",
-    "https-proxy-agent": "^7.0.2"
+    "@dongdev/fca-unofficial": "^4.0.3"
   }
 }
