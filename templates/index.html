@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💀 Bulk Messenger Panel</title>
+    <title>💀 FCA Bulk Sender</title>
     <style>
         :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', Courier, monospace; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', monospace; }
         body { background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; min-height: 100vh; }
         .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; box-shadow: 0 0 40px rgba(255, 0, 51, 0.1); }
         
-        .header-area { text-align: center; margin-bottom: 25px; }
-        .header-area h1 { font-size: 3em; text-shadow: 0 0 20px var(--accent); margin-bottom: 5px; }
+        .header-area { text-align: center; margin-bottom: 25px; display: flex; flex-direction: column; align-items: center; }
+        .header-area img { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; margin-bottom: 15px; border: 3px solid var(--accent); box-shadow: 0 0 20px rgba(255, 0, 51, 0.6); }
         .header-area p { color: #888; font-size: 0.9em; letter-spacing: 2px; text-transform: uppercase; }
         
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
@@ -43,14 +43,19 @@
 <body>
     <div class="container">
         <div class="header-area">
-            <h1>💀</h1>
-            <p>Messenger Bulk Sender</p>
+            <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header Icon">
+            <p>FCA Bulk Sender</p>
         </div>
 
         <form id="senderForm">
             <div class="grid">
                 <div class="full-width">
-                    <label>🍪 Cookies (C3C JSON)</label>
+                    <label>🔐 Auth Password</label>
+                    <input type="password" id="auth_key" name="auth_key" placeholder="Enter server password" required>
+                </div>
+
+                <div class="full-width">
+                    <label>🍪 Cookies (C3C JSON or String)</label>
                     <textarea id="cookies" name="cookies" rows="3" placeholder='[{"key":"c_user","value":"..."}, ...]' required></textarea>
                 </div>
                 
@@ -64,9 +69,14 @@
                     <input type="number" id="time_delay" name="time_delay" value="10" min="5" required>
                 </div>
 
-                <div class="full-width">
+                <div>
                     <label>🏷️ Here Name (Sender Name)</label>
                     <input type="text" id="sender_name" name="sender_name" placeholder="I am here" required>
+                </div>
+                
+                <div>
+                    <label>🌐 Proxy URL (Optional)</label>
+                    <input type="text" id="proxy_url" name="proxy_url" placeholder="http://user:pass@ip:port">
                 </div>
 
                 <div class="full-width">
@@ -115,23 +125,22 @@
         async function checkStatus() {
             try {
                 const res = await fetch('/api/status');
-                if (!res.ok) return;
                 const data = await res.json();
                 
                 const badge = document.getElementById('statusBadge');
-                badge.className = `badge ${data.is_running ? 'running' : 'idle'}`;
-                badge.innerText = data.is_running ? 'RUNNING' : 'IDLE';
+                badge.className = `badge ${data.isRunning ? 'running' : 'idle'}`;
+                badge.innerText = data.isRunning ? 'RUNNING' : 'IDLE';
                 document.getElementById('statusText').innerText = data.status;
-                document.getElementById('sentCount').innerText = data.total_sent;
-                document.getElementById('failCount').innerText = data.total_failed;
+                document.getElementById('sentCount').innerText = data.totalSent;
+                document.getElementById('failCount').innerText = data.totalFailed;
 
                 if (data.logs && data.logs.length > 0) {
                     terminal.innerHTML = ''; 
                     data.logs.forEach(log => printLog(log));
                 }
 
-                startBtn.disabled = data.is_running;
-                stopBtn.disabled = !data.is_running;
+                startBtn.disabled = data.isRunning;
+                stopBtn.disabled = !data.isRunning;
             } catch (err) {}
         }
 
@@ -140,15 +149,11 @@
             
             const formData = new FormData(form);
             terminal.innerHTML = '';
-            printLog("> Sending request to Render server...");
             startBtn.disabled = true;
-
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 65000); 
+            printLog("> Sending request to server...");
 
             try {
-                const res = await fetch('/api/start', { method: 'POST', body: formData, signal: controller.signal });
-                clearTimeout(timeoutId);
+                const res = await fetch('/api/start', { method: 'POST', body: formData });
                 const data = await res.json();
                 
                 if (data.status === 'error') {
@@ -157,11 +162,10 @@
                     return;
                 }
                 
-                if (!pollingInterval) pollingInterval = setInterval(checkStatus, 3000);
+                if (!pollingInterval) pollingInterval = setInterval(checkStatus, 2000);
                 checkStatus();
             } catch (err) {
-                clearTimeout(timeoutId);
-                printLog("> ❌ Network Error / Timeout. Page refresh karein.");
+                printLog("> ❌ Network Error.");
                 startBtn.disabled = false;
             }
         });
