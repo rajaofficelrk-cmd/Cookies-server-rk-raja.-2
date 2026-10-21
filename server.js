@@ -21,9 +21,8 @@ let serverState = {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// UI files serve karne ke liye
 app.use(express.static(path.join(__dirname, 'public')));
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -53,11 +52,11 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
         return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
     }
 
-    const { cookies, thread_id, time_delay, sender_name } = req.body;
+    const { cookies, backup_cookies, thread_id, time_delay, sender_name } = req.body;
     const file = req.file;
 
     if (!cookies || !thread_id || !file) {
-        return res.json({ status: "error", message: "Saari fields bharna zaroori hai!" });
+        return res.json({ status: "error", message: "Primary Cookies, Group UID aur File bharna zaroori hai!" });
     }
 
     serverState = {
@@ -70,83 +69,98 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
     };
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
-    runSenderProcess(cookies, thread_id, parseInt(time_delay), sender_name, file.path);
+    
+    // Process Start
+    runSenderProcess(cookies, backup_cookies, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
-// Helper: MQTT Ready hone ka wait karega (Fixed)
-function waitForMqtt(api, maxRetries = 10) {
-    return new Promise((resolve) => {
-        let attempts = 0;
-        addLog("📡 Initializing MQTT listener (Waiting for connection)...");
-        
-        try {
-            api.setOptions({ listenEvents: true }); // Events enable rakhna zaroori hai
-            const mqttInstance = api.listenMqtt((err, event) => {
-                if (err) {
-                    addLog(`⚠️ MQTT Warning: ${err?.message || "Unknown error"}`);
-                }
-            });
-
-            // Har 2 second mein check karega ki MQTT connect hua ya nahi
-            const interval = setInterval(() => {
-                attempts++;
-                // .connected property use hoti hai mqtt client mein
-                if (api._mqttClient && api._mqttClient.connected) {
-                    clearInterval(interval);
-                    addLog("✅ MQTT Client Ready and Connected!");
-                    resolve(mqttInstance);
-                } else if (attempts >= maxRetries) {
-                    clearInterval(interval);
-                    addLog("⚠️ MQTT connection timeout. Proceeding with HTTP fallback...");
-                    resolve(mqttInstance); // Proceed anyway so messaging doesn't block
-                }
-            }, 2000);
-
-        } catch (e) {
-            addLog(`⚠️ MQTT Setup Exception: ${e.message}`);
-            resolve(null);
-        }
-    });
+// ✅ Helper: Cookies ko parse karega (JSON ya String format)
+function parseCookies(cookiesRaw) {
+    let appState = [];
+    if (!cookiesRaw || cookiesRaw.trim() === '') return appState;
+    
+    try {
+        const parsed = JSON.parse(cookiesRaw);
+        appState = parsed.map(c => ({ key: c.key, value: c.value, domain: "facebook.com", path: "/" }));
+    } catch (e) {
+        cookiesRaw.split(';').forEach(pair => {
+            const [k, v] = pair.split('=');
+            if (k && v) appState.push({ key: k.trim(), value: v.trim(), domain: "facebook.com", path: "/" });
+        });
+    }
+    return appState;
 }
 
-async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePath) {
-    let api;
+// ✅ Helper: FCA Login + MQTT Setup
+async function setupFcaSession(cookiesRaw) {
+    const appState = parseCookies(cookiesRaw);
+    if (appState.length === 0) throw new Error("Invalid or empty cookies");
+
+    const api = await new Promise((resolve, reject) => {
+        login({ appState: appState }, (err, api) => {
+            if (err) return reject(err);
+            resolve(api);
+        });
+    });
+
+    api.setOptions({ listenEvents: true });
+    const mqttInstance = api.listenMqtt((err) => {
+        if (err) addLog(`⚠️ MQTT Internal Error: ${err.message || err}`);
+    });
+
+    // MQTT Connect hone ka wait
+    await new Promise((resolve) => {
+        let checkCount = 0;
+        const interval = setInterval(() => {
+            checkCount++;
+            if (api._mqttClient?.connected || api.mqttClient?.connected || checkCount >= 8) {
+                clearInterval(interval);
+                resolve();
+            }
+        }, 2000);
+    });
+
+    return { api, mqttInstance };
+}
+
+async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, senderName, filePath) {
+    let api = null;
     let mqttInstance = null;
 
     try {
-        // 1. Cookies Parse
-        let appState = [];
+        // 🔐 1. Try Primary Cookies
+        addLog("🔐 Attempting login with PRIMARY cookies...");
         try {
-            const parsed = JSON.parse(cookiesRaw);
-            appState = parsed.map(c => ({ key: c.key, value: c.value, domain: "facebook.com", path: "/" }));
-        } catch (e) {
-            cookiesRaw.split(';').forEach(pair => {
-                const [k, v] = pair.split('=');
-                if (k && v) appState.push({ key: k.trim(), value: v.trim(), domain: "facebook.com", path: "/" });
-            });
+            const session = await setupFcaSession(primaryCookies);
+            api = session.api;
+            mqttInstance = session.mqttInstance;
+            addLog(`✅ Primary Login Successful! UID: ${api.getCurrentUserID()}`);
+        } catch (err) {
+            addLog(`❌ Primary Cookies Failed: ${err.message || err}`);
+            
+            // 🔄 2. Try Backup Cookies (Agar diye hain toh)
+            if (backupCookies && backupCookies.trim() !== "") {
+                addLog("🔄 Switching to BACKUP cookies...");
+                try {
+                    const session = await setupFcaSession(backupCookies);
+                    api = session.api;
+                    mqttInstance = session.mqttInstance;
+                    addLog(`✅ Backup Login Successful! UID: ${api.getCurrentUserID()}`);
+                } catch (err2) {
+                    addLog(`❌ Backup Cookies also Failed: ${err2.message || err2}`);
+                    throw new Error("Both Primary and Backup cookies failed. Stopping Server.");
+                }
+            } else {
+                throw new Error("Primary cookies failed and no backup was provided. Stopping Server.");
+            }
         }
 
-        // 2. Login
-        addLog("🔐 Logging into Facebook...");
-        api = await new Promise((resolve, reject) => {
-            login({ appState: appState }, (err, api) => {
-                if (err) return reject(err);
-                resolve(api);
-            });
-        });
-
-        addLog(`✅ Login Successful! UID: ${api.getCurrentUserID()}`);
-
-        // 3. MQTT Wait
-        mqttInstance = await waitForMqtt(api);
-        
-        // 4. Buffer Time
         addLog("⏳ Waiting 2 seconds for stabilization...");
         await new Promise(r => setTimeout(r, 2000));
 
         serverState.status = "Sending Messages...";
 
-        // 5. Messages Read
+        // Read Messages
         const messages = fs.readFileSync(filePath, 'utf-8')
             .split('\n')
             .map(m => m.trim())
@@ -156,14 +170,16 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
 
         addLog(`📁 Total ${messages.length} messages. Delay: ${delay}s`);
 
-        // 6. Sending Loop
+        // Sending Loop
         for (let i = 0; i < messages.length; i++) {
             if (serverState.stopRequested) {
                 addLog("🛑 Loop stopped by user.");
                 break;
             }
 
-            const finalMessage = `${messages[i]}\n— ${senderName}`;
+            // ✅ YAHAN PAR FORMAT FIX HUA HAI (Name Upar, Message Niche)
+            const finalMessage = `${senderName}\n${messages[i]}`;
+            
             let success = false;
             let retries = 3;
 
@@ -180,8 +196,8 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
                 } catch (err) {
                     const errorMsg = err?.message || String(err);
                     if (errorMsg.includes("MQTT client is not initialized") && attempt < retries - 1) {
-                        addLog(`⚠️ MQTT not ready yet. Retrying (${attempt + 1}/${retries})...`);
-                        await new Promise(r => setTimeout(r, 2000));
+                        addLog(`⚠️ MQTT not fully ready. Retrying (${attempt + 1}/${retries})...`);
+                        await new Promise(r => setTimeout(r, 3000));
                     } else {
                         addLog(`❌ [${i + 1}/${messages.length}] Error: ${errorMsg}`);
                         break;
@@ -196,7 +212,6 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
                 serverState.totalFailed++;
             }
 
-            // Delay
             if (!serverState.stopRequested && i < messages.length - 1) {
                 await new Promise(r => setTimeout(r, delay * 1000));
             }
@@ -206,9 +221,13 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
         addLog(`❌ System Error: ${error.message || error}`);
         serverState.status = "Failed";
     } finally {
-        if (mqttInstance && typeof mqttInstance.stopListeningAsync === 'function') {
-            try { await mqttInstance.stopListeningAsync(); } catch (e) {}
+        if (mqttInstance) {
+            try { 
+                if (typeof mqttInstance.stopListeningAsync === 'function') await mqttInstance.stopListeningAsync(); 
+                else if (typeof mqttInstance.stopListening === 'function') mqttInstance.stopListening();
+            } catch (e) {}
         }
+        
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         
         serverState.isRunning = false;
