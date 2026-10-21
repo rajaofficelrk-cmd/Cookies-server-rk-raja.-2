@@ -11,6 +11,9 @@ from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from fbchat_muqit import Client, ThreadType
 
+# ==========================================
+# 🚀 APP CONFIGURATION
+# ==========================================
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
@@ -47,54 +50,64 @@ def parse_cookies(cookie_input):
     raise ValueError("Invalid cookie format.")
 
 # ==========================================
-# 🚀 UNIVERSAL SEND SYSTEM (Jo bhi mile use karega)
+# 🚀 SMART PROXY ENGINE
 # ==========================================
-async def universal_send(bot, text, thread_id):
-    # Method 1
-    if hasattr(bot, 'sendMessage'):
-        return await bot.sendMessage(text, thread_id, ThreadType.GROUP)
-    # Method 2
-    elif hasattr(bot, 'send_message'):
-        try:
-            return await bot.send_message(text=text, thread_id=thread_id)
-        except TypeError:
-            return await bot.send_message(text, thread_id)
-    # Method 3
-    elif hasattr(bot, 'sendMessageMqqtt'):
-        return await bot.sendMessageMqqtt(text, thread_id, ThreadType.GROUP)
-    # Method 4
-    elif hasattr(bot, 'send'):
-        return await bot.send(text, thread_id)
-    else:
-        raise AttributeError("Koi bhi sending method library mein nahi mila!")
-
 def get_working_proxy():
-    add_log("🌐 Auto-fetching proxies (Free proxies are mostly dead, please wait)...")
+    add_log("🌐 Fetching fresh proxies from 5 sources (Please wait 10-15s)...")
     urls = [
         "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+        "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
+        "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt"
     ]
+    
     proxies = []
     for url in urls:
         try:
             res = requests.get(url, timeout=5)
-            if res.status_code == 200: proxies.extend(res.text.split('\n'))
+            if res.status_code == 200: 
+                proxies.extend(res.text.split('\n'))
         except: pass
         
-    proxies = [p.strip() for p in proxies if p.strip()]
-    random.shuffle(proxies)
+    proxies = [p.strip() for p in proxies if p.strip() and ":" in p]
+    random.shuffle(proxies) # Mix them up
     
-    for proxy in proxies[:10]: # Sirf top 10 test karega taaki time waste na ho
+    add_log(f"🔍 Testing proxies to find a fast one... (Total: {len(proxies)})")
+    
+    # Fast testing against ipify
+    for proxy in proxies[:25]: # Test top 25
         proxy_url = f"http://{proxy}"
         try:
-            test = requests.get("https://www.facebook.com", proxies={"http": proxy_url, "https": proxy_url}, timeout=3)
+            test = requests.get("https://api.ipify.org?format=json", proxies={"http": proxy_url, "https": proxy_url}, timeout=3)
             if test.status_code == 200:
-                add_log(f"✅ Fast Proxy Found: {proxy}")
+                add_log(f"✅ Super Fast Proxy Found: {proxy}")
                 return proxy_url
         except: continue
             
-    add_log("⚠️ Free Proxy nahi mili. Direct connection (Blocked IP) par try kar raha hoon.")
+    add_log("⚠️ Koi fast proxy nahi mili. Direct connection (Timeout) try kar raha hoon.")
     return None
+
+async def universal_send(bot, text, thread_id):
+    if hasattr(bot, 'send_message'):
+        try:
+            await bot.send_message(text=text, thread_id=thread_id)
+            return True
+        except Exception as e:
+            if "timed out" in str(e).lower(): raise e
+    if hasattr(bot, 'sendMessage'):
+        try:
+            await bot.sendMessage(text, thread_id, ThreadType.GROUP)
+            return True
+        except Exception as e:
+            if "timed out" in str(e).lower(): raise e
+    if hasattr(bot, 'sendMessageMqqtt'):
+        try:
+            await bot.sendMessageMqqtt(text, thread_id, ThreadType.GROUP)
+            return True
+        except Exception as e:
+            if "timed out" in str(e).lower(): raise e
+    raise Exception("Library mein koi valid sending method nahi mila.")
 
 @app.route('/')
 def index(): return render_template('index.html')
@@ -178,32 +191,20 @@ def run_async_worker(cookies_path, thread_id, filepath, delay, sender_name):
 
 async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_name):
     bot = None
+    current_proxy = None
+    
+    messages = []
     try:
-        working_proxy = get_working_proxy()
-        if working_proxy:
-            os.environ['HTTP_PROXY'] = working_proxy
-            os.environ['HTTPS_PROXY'] = working_proxy
-        
-        add_log("🔐 Logging into Facebook...")
-        bot = Client(cookies_file_path=cookies_path)
-        await bot.start()
-        add_log(f"✅ Login Successful! UID: {bot.uid}")
+        with open(filepath, 'r', encoding='utf-8-sig') as f: messages = [line.strip() for line in f if line.strip()]
+    except UnicodeDecodeError:
+        with open(filepath, 'r', encoding='latin-1') as f: messages = [line.strip() for line in f if line.strip()]
 
-        server_state["status"] = "Sending Messages..."
-        
-        messages = []
-        try:
-            with open(filepath, 'r', encoding='utf-8-sig') as f: messages = [line.strip() for line in f if line.strip()]
-        except UnicodeDecodeError:
-            with open(filepath, 'r', encoding='latin-1') as f: messages = [line.strip() for line in f if line.strip()]
+    total = len(messages)
+    if total == 0:
+        add_log("⚠️ File khali hai.")
+        return
 
-        total = len(messages)
-        if total == 0:
-            add_log("⚠️ File khali hai.")
-            return
-
-        add_log(f"📁 Total {total} messages. Delay: {delay}s")
-
+    try:
         for idx, msg in enumerate(messages, 1):
             if stop_event.is_set():
                 add_log("🛑 Loop stopped by user.")
@@ -212,21 +213,45 @@ async def bulk_sender_logic(cookies_path, thread_id, filepath, delay, sender_nam
             final_message = f"{msg}\n— {sender_name}"
             success = False
             
-            try:
-                # ✅ UNIVERSAL SEND WITH 10s TIMEOUT
-                await asyncio.wait_for(universal_send(bot, final_message, thread_id), timeout=10.0)
-                success = True
-            except asyncio.TimeoutError:
-                add_log(f"⏭️ [{idx}/{total}] Timeout. Skip...")
-            except Exception as e:
-                add_log(f"❌ [{idx}/{total}] Error: {str(e)}")
+            # 🔄 PROXY RETRY LOOP (Har message ke liye 3 baar try karega)
+            for attempt in range(3):
+                if stop_event.is_set(): break
+                
+                # Agar proxy nahi hai ya timeout hua tha, toh nayi proxy le
+                if not current_proxy or attempt > 0:
+                    current_proxy = get_working_proxy()
+                    if current_proxy:
+                        os.environ['HTTP_PROXY'] = current_proxy
+                        os.environ['HTTPS_PROXY'] = current_proxy
+                    
+                    # Re-login with new proxy
+                    if bot:
+                        try: await bot.stop()
+                        except: pass
+                    add_log(f"🔄 Reconnecting with new proxy (Attempt {attempt+1})...")
+                    bot = Client(cookies_file_path=cookies_path)
+                    await bot.start()
+                
+                try:
+                    # 12 Second timeout
+                    await asyncio.wait_for(universal_send(bot, final_message, thread_id), timeout=12.0)
+                    success = True
+                    break # Agar chala gaya toh loop se bahar
+                except asyncio.TimeoutError:
+                    add_log(f"⏭️ [{idx}/{total}] Timeout. Changing Proxy...")
+                    current_proxy = None # Force new proxy next time
+                except Exception as e:
+                    add_log(f"❌ [{idx}/{total}] Error: {str(e)}")
+                    current_proxy = None
             
             if success:
                 server_state["total_sent"] += 1
                 add_log(f"✅ [{idx}/{total}] Sent: {msg[:30]}...")
             else:
                 server_state["total_failed"] += 1
+                add_log(f"❌ [{idx}/{total}] Failed after 3 attempts. Skipping.")
             
+            # Delay
             if not stop_event.is_set() and idx < total:
                 for _ in range(delay):
                     if stop_event.is_set(): break
