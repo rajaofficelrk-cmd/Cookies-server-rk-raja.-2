@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💀 FCA Bulk Sender</title>
+    <title>💀 Bulk Messenger Panel</title>
     <style>
         :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', monospace; }
@@ -44,18 +44,13 @@
     <div class="container">
         <div class="header-area">
             <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header Icon">
-            <p>FCA Bulk Sender</p>
+            <p>Messenger Bulk Sender</p>
         </div>
 
         <form id="senderForm">
             <div class="grid">
                 <div class="full-width">
-                    <label>🔐 Auth Password</label>
-                    <input type="password" id="auth_key" name="auth_key" placeholder="Enter server password" required>
-                </div>
-
-                <div class="full-width">
-                    <label>🍪 Cookies (C3C JSON or String)</label>
+                    <label>🍪 Cookies (C3C JSON)</label>
                     <textarea id="cookies" name="cookies" rows="3" placeholder='[{"key":"c_user","value":"..."}, ...]' required></textarea>
                 </div>
                 
@@ -69,14 +64,9 @@
                     <input type="number" id="time_delay" name="time_delay" value="10" min="5" required>
                 </div>
 
-                <div>
+                <div class="full-width">
                     <label>🏷️ Here Name (Sender Name)</label>
                     <input type="text" id="sender_name" name="sender_name" placeholder="I am here" required>
-                </div>
-                
-                <div>
-                    <label>🌐 Proxy URL (Optional)</label>
-                    <input type="text" id="proxy_url" name="proxy_url" placeholder="http://user:pass@ip:port">
                 </div>
 
                 <div class="full-width">
@@ -150,7 +140,7 @@
             const formData = new FormData(form);
             terminal.innerHTML = '';
             startBtn.disabled = true;
-            printLog("> Sending request to server...");
+            printLog("> Starting server...");
 
             try {
                 const res = await fetch('/api/start', { method: 'POST', body: formData });
