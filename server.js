@@ -22,7 +22,7 @@ let serverState = {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ UI FILES SERVE KARNE KE LIYE
+// UI files serve karne ke liye
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -48,7 +48,7 @@ app.post('/api/stop', (req, res) => {
     res.json({ status: "success", message: "Stop signal bhej diya gaya." });
 });
 
-// ✅ START ROUTE (No Auth, No Proxy)
+// Start route (No Auth, No Proxy)
 app.post('/api/start', upload.single('message_file'), async (req, res) => {
     if (serverState.isRunning) {
         return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
@@ -72,21 +72,20 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
 
-    // Start background process
+    // Background process start karein
     runSenderProcess(cookies, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
 async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePath) {
     let api;
+    let mqttListener = null; // MQTT listener ko track karne ke liye
 
     try {
         let appState = [];
         try {
-            // JSON Format Parse
             const parsed = JSON.parse(cookiesRaw);
             appState = parsed.map(c => ({ key: c.key, value: c.value, domain: "facebook.com", path: "/" }));
         } catch (e) {
-            // String Format Parse
             cookiesRaw.split(';').forEach(pair => {
                 const [k, v] = pair.split('=');
                 if (k && v) appState.push({ key: k.trim(), value: v.trim(), domain: "facebook.com", path: "/" });
@@ -95,7 +94,7 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
 
         addLog("🔐 Logging into Facebook...");
         
-        // Login using FCA
+        // Login
         api = await new Promise((resolve, reject) => {
             login({ appState: appState }, (err, api) => {
                 if (err) return reject(err);
@@ -104,6 +103,19 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
         });
 
         addLog(`✅ Login Successful! UID: ${api.getCurrentUserID()}`);
+
+        // ✅ MQTT INITIALIZATION (Yeh line add karni hai)
+        addLog("📡 Initializing MQTT listener...");
+        api.setOptions({ listenEvents: true }); // Event listening enable karein
+        mqttListener = api.listenMqtt((err, event) => {
+            if (err) {
+                addLog(`⚠️ MQTT Listener Error: ${err.message}`);
+                return;
+            }
+            // Hum incoming messages ignore kar rahe hain, sirf MQTT client ko active rakhna hai
+        });
+        addLog("✅ MQTT Listener initialized.");
+
         serverState.status = "Sending Messages...";
 
         const messages = fs.readFileSync(filePath, 'utf-8')
@@ -124,7 +136,7 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
             const finalMessage = `${messages[i]}\n— ${senderName}`;
 
             try {
-                // Send Message
+                // Message send karein
                 await new Promise((resolve, reject) => {
                     api.sendMessage(finalMessage, threadId, (err) => {
                         if (err) return reject(err);
@@ -148,6 +160,17 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePat
         addLog(`❌ System Error: ${error.message}`);
         serverState.status = "Failed";
     } finally {
+        // MQTT listener ko band karein (agar exist karta hai)
+        if (mqttListener && typeof mqttListener.stopListeningAsync === 'function') {
+            try {
+                await mqttListener.stopListeningAsync();
+                addLog("📡 MQTT Listener stopped.");
+            } catch (e) {
+                addLog(`⚠️ Error stopping MQTT listener: ${e.message}`);
+            }
+        }
+
+        // Temp file delete karein
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         
         serverState.isRunning = false;
