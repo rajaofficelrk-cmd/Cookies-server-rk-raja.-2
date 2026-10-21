@@ -1,15 +1,11 @@
 const express = require('express');
 const multer = require('multer');
 const login = require('@dongdev/fca-unofficial');
-const { HttpsProxyAgent } = require('https-proxy-agent');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// 🔐 SECURITY PASSWORD (Isko change kar lena)
-const SECRET_PASSWORD = "Admin@123";
 
 const upload = multer({ dest: 'uploads/' });
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
@@ -25,7 +21,12 @@ let serverState = {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ✅ UI FILES SERVE KARNE KE LIYE
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 function addLog(msg) {
     const time = new Date().toLocaleTimeString();
@@ -47,15 +48,13 @@ app.post('/api/stop', (req, res) => {
     res.json({ status: "success", message: "Stop signal bhej diya gaya." });
 });
 
+// ✅ START ROUTE (No Auth, No Proxy)
 app.post('/api/start', upload.single('message_file'), async (req, res) => {
-    if (req.body.auth_key !== SECRET_PASSWORD) {
-        return res.json({ status: "error", message: "❌ Galat Password!" });
-    }
     if (serverState.isRunning) {
         return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
     }
 
-    const { cookies, thread_id, time_delay, sender_name, proxy_url } = req.body;
+    const { cookies, thread_id, time_delay, sender_name } = req.body;
     const file = req.file;
 
     if (!cookies || !thread_id || !file) {
@@ -73,34 +72,30 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
 
-    runSenderProcess(cookies, thread_id, parseInt(time_delay), sender_name, proxy_url, file.path);
+    // Start background process
+    runSenderProcess(cookies, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
-async function runSenderProcess(cookiesRaw, threadId, delay, senderName, proxyUrl, filePath) {
+async function runSenderProcess(cookiesRaw, threadId, delay, senderName, filePath) {
     let api;
-    let proxyAgent = null;
 
     try {
-        if (proxyUrl) {
-            addLog(`🌐 Setting Proxy: ${proxyUrl.substring(0, 15)}...`);
-            proxyAgent = new HttpsProxyAgent(proxyUrl);
-        } else {
-            addLog("⚠️ Bina Proxy ke chal raha hai. (Render IP Blocked)");
-        }
-
         let appState = [];
         try {
-            appState = JSON.parse(cookiesRaw);
+            // JSON Format Parse
+            const parsed = JSON.parse(cookiesRaw);
+            appState = parsed.map(c => ({ key: c.key, value: c.value, domain: "facebook.com", path: "/" }));
         } catch (e) {
+            // String Format Parse
             cookiesRaw.split(';').forEach(pair => {
                 const [k, v] = pair.split('=');
                 if (k && v) appState.push({ key: k.trim(), value: v.trim(), domain: "facebook.com", path: "/" });
             });
         }
 
-        addLog("🔐 Logging into Facebook (fca-unofficial)...");
+        addLog("🔐 Logging into Facebook...");
         
-        // ✅ FCA Login
+        // Login using FCA
         api = await new Promise((resolve, reject) => {
             login({ appState: appState }, (err, api) => {
                 if (err) return reject(err);
@@ -129,7 +124,7 @@ async function runSenderProcess(cookiesRaw, threadId, delay, senderName, proxyUr
             const finalMessage = `${messages[i]}\n— ${senderName}`;
 
             try {
-                // ✅ FCA Send Message (Promise wrapper)
+                // Send Message
                 await new Promise((resolve, reject) => {
                     api.sendMessage(finalMessage, threadId, (err) => {
                         if (err) return reject(err);
