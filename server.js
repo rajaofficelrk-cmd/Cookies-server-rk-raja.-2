@@ -7,8 +7,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ✅ FIX 1: Folder pehle banao, phir multer initialize karo
+if (!fs.existsSync('uploads')) fs.mkdirSync('uploads', { recursive: true });
 const upload = multer({ dest: 'uploads/' });
-if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
 
 let serverState = {
     isRunning: false,
@@ -70,11 +71,9 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
     
-    // Process Start
     runSenderProcess(cookies, backup_cookies, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
-// ✅ Helper: Cookies ko parse karega (JSON ya String format)
 function parseCookies(cookiesRaw) {
     let appState = [];
     if (!cookiesRaw || cookiesRaw.trim() === '') return appState;
@@ -91,7 +90,6 @@ function parseCookies(cookiesRaw) {
     return appState;
 }
 
-// ✅ Helper: FCA Login + MQTT Setup
 async function setupFcaSession(cookiesRaw) {
     const appState = parseCookies(cookiesRaw);
     if (appState.length === 0) throw new Error("Invalid or empty cookies");
@@ -108,7 +106,6 @@ async function setupFcaSession(cookiesRaw) {
         if (err) addLog(`⚠️ MQTT Internal Error: ${err.message || err}`);
     });
 
-    // MQTT Connect hone ka wait
     await new Promise((resolve) => {
         let checkCount = 0;
         const interval = setInterval(() => {
@@ -128,7 +125,6 @@ async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, 
     let mqttInstance = null;
 
     try {
-        // 🔐 1. Try Primary Cookies
         addLog("🔐 Attempting login with PRIMARY cookies...");
         try {
             const session = await setupFcaSession(primaryCookies);
@@ -138,7 +134,6 @@ async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, 
         } catch (err) {
             addLog(`❌ Primary Cookies Failed: ${err.message || err}`);
             
-            // 🔄 2. Try Backup Cookies (Agar diye hain toh)
             if (backupCookies && backupCookies.trim() !== "") {
                 addLog("🔄 Switching to BACKUP cookies...");
                 try {
@@ -160,7 +155,6 @@ async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, 
 
         serverState.status = "Sending Messages...";
 
-        // Read Messages
         const messages = fs.readFileSync(filePath, 'utf-8')
             .split('\n')
             .map(m => m.trim())
@@ -170,14 +164,12 @@ async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, 
 
         addLog(`📁 Total ${messages.length} messages. Delay: ${delay}s`);
 
-        // Sending Loop
         for (let i = 0; i < messages.length; i++) {
             if (serverState.stopRequested) {
                 addLog("🛑 Loop stopped by user.");
                 break;
             }
 
-            // ✅ YAHAN PAR FORMAT FIX HUA HAI (Name Upar, Message Niche)
             const finalMessage = `${senderName}\n${messages[i]}`;
             
             let success = false;
@@ -241,4 +233,5 @@ async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, 
     }
 }
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// ✅ FIX 2: '0.0.0.0' add karna zaroori hai Render ke liye
+app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
