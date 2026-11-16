@@ -1,14 +1,17 @@
 {
-  "name": "fb-bulk-sender",
+  "name": "cookies-server-rk-raja",
   "version": "1.0.0",
-  "description": "Facebook Bulk Sender",
+  "description": "Raja Cookies Server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "multer": "^1.4.5-lts.1",
-    "@dongdev/fca-unofficial": "^4.0.3"
-  }
+    "@dongdev/fca-unofficial": "^3.0.0",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "license": "MIT"
 }
