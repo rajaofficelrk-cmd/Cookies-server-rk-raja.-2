@@ -95,7 +95,7 @@
         function printLog(msg) {
             const div = document.createElement('div');
             div.className = 'log-line';
-            if (msg.includes('✅') || msg.includes('🚀') || msg.includes('🔄')) div.classList.add('log-success');
+            if (msg.includes('✅') || msg.includes('🚀') || msg.includes('🔄') || msg.includes('🌐') || msg.includes('🔥')) div.classList.add('log-success');
             if (msg.includes('❌') || msg.includes('🛑') || msg.includes('⚠️')) div.classList.add('log-error');
             div.innerText = msg;
             terminal.appendChild(div);
