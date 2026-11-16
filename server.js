@@ -7,7 +7,6 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ FIX 1: Folder pehle banao, phir multer initialize karo
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads', { recursive: true });
 const upload = multer({ dest: 'uploads/' });
 
@@ -32,13 +31,11 @@ function addLog(msg) {
     const time = new Date().toLocaleTimeString();
     const logMsg = `[${time}] ${msg}`;
     serverState.logs.push(logMsg);
-    if (serverState.logs.length > 150) serverState.logs.shift();
+    if (serverState.logs.length > 200) serverState.logs.shift();
     console.log(logMsg);
 }
 
-app.get('/api/status', (req, res) => {
-    res.json(serverState);
-});
+app.get('/api/status', (req, res) => res.json(serverState));
 
 app.post('/api/stop', (req, res) => {
     if (!serverState.isRunning) return res.json({ status: "error", message: "Server pehle se band hai." });
@@ -49,35 +46,30 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.post('/api/start', upload.single('message_file'), async (req, res) => {
-    if (serverState.isRunning) {
-        return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
-    }
+    if (serverState.isRunning) return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
 
-    const { cookies, backup_cookies, thread_id, time_delay, sender_name } = req.body;
+    const { cookie_pool, thread_id, time_delay, sender_name } = req.body;
     const file = req.file;
 
-    if (!cookies || !thread_id || !file) {
-        return res.json({ status: "error", message: "Primary Cookies, Group UID aur File bharna zaroori hai!" });
+    if (!cookie_pool || !thread_id || !file) {
+        return res.json({ status: "error", message: "Cookie Pool, Group UID aur File bharna zaroori hai!" });
     }
 
     serverState = {
-        isRunning: true,
-        status: "Starting...",
-        logs: [],
-        totalSent: 0,
-        totalFailed: 0,
-        stopRequested: false
+        isRunning: true, status: "Initializing...", logs: [],
+        totalSent: 0, totalFailed: 0, stopRequested: false
     };
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
-    
-    runSenderProcess(cookies, backup_cookies, thread_id, parseInt(time_delay), sender_name, file.path);
+    runSenderProcess(cookie_pool, thread_id, parseInt(time_delay), sender_name, file.path);
 });
+
+function parsePool(poolRaw) {
+    return poolRaw.split('---').map(c => c.trim()).filter(c => c !== '');
+}
 
 function parseCookies(cookiesRaw) {
     let appState = [];
-    if (!cookiesRaw || cookiesRaw.trim() === '') return appState;
-    
     try {
         const parsed = JSON.parse(cookiesRaw);
         appState = parsed.map(c => ({ key: c.key, value: c.value, domain: "facebook.com", path: "/" }));
@@ -90,10 +82,7 @@ function parseCookies(cookiesRaw) {
     return appState;
 }
 
-async function setupFcaSession(cookiesRaw) {
-    const appState = parseCookies(cookiesRaw);
-    if (appState.length === 0) throw new Error("Invalid or empty cookies");
-
+async function setupFcaSession(appState) {
     const api = await new Promise((resolve, reject) => {
         login({ appState: appState }, (err, api) => {
             if (err) return reject(err);
@@ -101,81 +90,64 @@ async function setupFcaSession(cookiesRaw) {
         });
     });
 
-    api.setOptions({ listenEvents: true });
+    api.setOptions({ listenEvents: false, selfListen: false, forceLogin: true, autoMarkRead: false });
     const mqttInstance = api.listenMqtt((err) => {
-        if (err) addLog(`⚠️ MQTT Internal Error: ${err.message || err}`);
+        if (err) addLog(`⚠️ MQTT Error: ${err.message || err}`);
     });
 
+    // Fast MQTT wait (10ms check)
     await new Promise((resolve) => {
-        let checkCount = 0;
+        let checks = 0;
         const interval = setInterval(() => {
-            checkCount++;
-            if (api._mqttClient?.connected || api.mqttClient?.connected || checkCount >= 8) {
+            checks++;
+            if (api._mqttClient?.connected || api.mqttClient?.connected || checks >= 100) {
                 clearInterval(interval);
                 resolve();
             }
-        }, 2000);
+        }, 10); 
     });
 
     return { api, mqttInstance };
 }
 
-async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, senderName, filePath) {
-    let api = null;
-    let mqttInstance = null;
+async function getWorkingApi(cookiePool, startIndex) {
+    for (let i = startIndex; i < cookiePool.length; i++) {
+        try {
+            const appState = parseCookies(cookiePool[i]);
+            addLog(`🔐 Trying Cookie #${i + 1}...`);
+            const session = await setupFcaSession(appState);
+            addLog(`✅ Cookie #${i + 1} Login Successful!`);
+            return { api: session.api, mqtt: session.mqttInstance, poolIndex: i };
+        } catch (err) {
+            addLog(`❌ Cookie #${i + 1} Failed.`);
+        }
+    }
+    throw new Error("Saari cookies dead hain!");
+}
+
+async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, filePath) {
+    const cookiePool = parsePool(cookiePoolRaw);
+    let api = null, mqttInstance = null, currentPoolIndex = 0;
 
     try {
-        addLog("🔐 Attempting login with PRIMARY cookies...");
-        try {
-            const session = await setupFcaSession(primaryCookies);
-            api = session.api;
-            mqttInstance = session.mqttInstance;
-            addLog(`✅ Primary Login Successful! UID: ${api.getCurrentUserID()}`);
-        } catch (err) {
-            addLog(`❌ Primary Cookies Failed: ${err.message || err}`);
-            
-            if (backupCookies && backupCookies.trim() !== "") {
-                addLog("🔄 Switching to BACKUP cookies...");
-                try {
-                    const session = await setupFcaSession(backupCookies);
-                    api = session.api;
-                    mqttInstance = session.mqttInstance;
-                    addLog(`✅ Backup Login Successful! UID: ${api.getCurrentUserID()}`);
-                } catch (err2) {
-                    addLog(`❌ Backup Cookies also Failed: ${err2.message || err2}`);
-                    throw new Error("Both Primary and Backup cookies failed. Stopping Server.");
-                }
-            } else {
-                throw new Error("Primary cookies failed and no backup was provided. Stopping Server.");
-            }
-        }
-
-        addLog("⏳ Waiting 2 seconds for stabilization...");
-        await new Promise(r => setTimeout(r, 2000));
+        const initial = await getWorkingApi(cookiePool, currentPoolIndex);
+        api = initial.api; mqttInstance = initial.mqtt; currentPoolIndex = initial.poolIndex;
 
         serverState.status = "Sending Messages...";
+        addLog("🚀 Started Sending Non-Stop!");
 
-        const messages = fs.readFileSync(filePath, 'utf-8')
-            .split('\n')
-            .map(m => m.trim())
-            .filter(m => m.length > 0);
-
+        const messages = fs.readFileSync(filePath, 'utf-8').split('\n').map(m => m.trim()).filter(m => m.length > 0);
         if (messages.length === 0) throw new Error("File khali hai.");
 
         addLog(`📁 Total ${messages.length} messages. Delay: ${delay}s`);
 
         for (let i = 0; i < messages.length; i++) {
-            if (serverState.stopRequested) {
-                addLog("🛑 Loop stopped by user.");
-                break;
-            }
+            if (serverState.stopRequested) break;
 
             const finalMessage = `${senderName}\n${messages[i]}`;
-            
             let success = false;
-            let retries = 3;
 
-            for (let attempt = 0; attempt < retries; attempt++) {
+            for (let attempt = 0; attempt < 3; attempt++) {
                 try {
                     await new Promise((resolve, reject) => {
                         api.sendMessage(finalMessage, threadId, (err) => {
@@ -187,19 +159,28 @@ async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, 
                     break;
                 } catch (err) {
                     const errorMsg = err?.message || String(err);
-                    if (errorMsg.includes("MQTT client is not initialized") && attempt < retries - 1) {
-                        addLog(`⚠️ MQTT not fully ready. Retrying (${attempt + 1}/${retries})...`);
-                        await new Promise(r => setTimeout(r, 3000));
+                    
+                    if (errorMsg.includes("login") || errorMsg.includes("checkpoint") || errorMsg.includes("session") || errorMsg.includes("MQTT")) {
+                        addLog(`⚠️ Cookie #${currentPoolIndex + 1} Dead! Rotating...`);
+                        if (mqttInstance && typeof mqttInstance.stopListening === 'function') mqttInstance.stopListening();
+
+                        try {
+                            const newSession = await getWorkingApi(cookiePool, currentPoolIndex + 1);
+                            api = newSession.api; mqttInstance = newSession.mqtt; currentPoolIndex = newSession.poolIndex;
+                            attempt = -1; 
+                            continue;
+                        } catch (rotateErr) {
+                            throw new Error("All cookies dead.");
+                        }
                     } else {
-                        addLog(`❌ [${i + 1}/${messages.length}] Error: ${errorMsg}`);
-                        break;
+                        await new Promise(r => setTimeout(r, 1000));
                     }
                 }
             }
 
             if (success) {
                 serverState.totalSent++;
-                addLog(`✅ [${i + 1}/${messages.length}] Sent: ${messages[i].substring(0, 30)}...`);
+                addLog(`✅ [${i + 1}/${messages.length}] Sent`);
             } else {
                 serverState.totalFailed++;
             }
@@ -208,30 +189,15 @@ async function runSenderProcess(primaryCookies, backupCookies, threadId, delay, 
                 await new Promise(r => setTimeout(r, delay * 1000));
             }
         }
-
     } catch (error) {
-        addLog(`❌ System Error: ${error.message || error}`);
+        addLog(`❌ Error: ${error.message}`);
         serverState.status = "Failed";
     } finally {
-        if (mqttInstance) {
-            try { 
-                if (typeof mqttInstance.stopListeningAsync === 'function') await mqttInstance.stopListeningAsync(); 
-                else if (typeof mqttInstance.stopListening === 'function') mqttInstance.stopListening();
-            } catch (e) {}
-        }
-        
+        if (mqttInstance && typeof mqttInstance.stopListening === 'function') mqttInstance.stopListening();
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        
         serverState.isRunning = false;
-        if (serverState.stopRequested) serverState.status = "Stopped by User";
-        else if (serverState.totalSent > 0) {
-            serverState.status = "Completed";
-            addLog("🎉 Process complete!");
-        } else {
-            serverState.status = "Failed";
-        }
+        serverState.status = serverState.stopRequested ? "Stopped" : "Completed";
     }
 }
 
-// ✅ FIX 2: '0.0.0.0' add karna zaroori hai Render ke liye
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
