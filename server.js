@@ -40,6 +40,7 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
     if (serverState.isRunning) return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
 
     const cookie_pool = req.body.cookie_pool;
+    const proxy = req.body.proxy; // Naya proxy field
     const thread_id = req.body.thread_id;
     const time_delay = req.body.time_delay;
     const sender_name = req.body.sender_name;
@@ -52,7 +53,7 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
     serverState = { isRunning: true, status: "Initializing...", logs: [], totalSent: 0, totalFailed: 0, stopRequested: false };
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
-    runSenderProcess(cookie_pool, thread_id, parseInt(time_delay), sender_name, file.path);
+    runSenderProcess(cookie_pool, proxy, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
 function parsePool(poolRaw) { return poolRaw.split('---').map(c => c.trim()).filter(c => c !== ''); }
@@ -71,25 +72,27 @@ function parseCookies(cookiesRaw) {
     return appState;
 }
 
-// ✅ LOGIN TIMEOUT FIX (5 Seconds max wait)
-async function setupFcaSession(appState) {
+async function setupFcaSession(appState, proxy) {
+    const options = { appState: appState };
+    if (proxy && proxy.trim() !== '') {
+        options.proxy = proxy.trim(); // Agar proxy daali hai toh use karo
+    }
+
+    // Timeout ko 15 second kar diya hai taaki slow net par bhi connect ho jaye
     const loginPromise = new Promise((resolve, reject) => {
-        login({ appState: appState }, (err, api) => {
+        login(options, (err, api) => {
             if (err) return reject(err);
             resolve(api);
         });
     });
 
     const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Login timeout (5s) - Cookie dead or IP blocked")), 5000)
+        setTimeout(() => reject(new Error("Login timeout (15s) - IP blocked ya Cookie dead")), 15000)
     );
 
-    // Race condition: Jo pehle complete ho jaye (Login ya 5s Timeout)
     const api = await Promise.race([loginPromise, timeoutPromise]);
 
     api.setOptions({ listenEvents: false, selfListen: false, forceLogin: true, autoMarkRead: false });
-    
-    // MQTT start karo background me, wait mat karo
     api.listenMqtt((err) => {
         if (err) console.log(`MQTT Error: ${err.message}`);
     });
@@ -97,12 +100,12 @@ async function setupFcaSession(appState) {
     return { api };
 }
 
-async function getWorkingApi(cookiePool, startIndex) {
+async function getWorkingApi(cookiePool, proxy, startIndex) {
     for (let i = startIndex; i < cookiePool.length; i++) {
         try {
             const appState = parseCookies(cookiePool[i]);
             addLog(`🔐 Trying Cookie #${i + 1}...`);
-            const session = await setupFcaSession(appState);
+            const session = await setupFcaSession(appState, proxy);
             addLog(`✅ Cookie #${i + 1} Login Successful!`);
             return { api: session.api, poolIndex: i };
         } catch (err) {
@@ -112,12 +115,12 @@ async function getWorkingApi(cookiePool, startIndex) {
     throw new Error("Saari cookies dead hain ya timeout ho gayi!");
 }
 
-async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, filePath) {
+async function runSenderProcess(cookiePoolRaw, proxy, threadId, delay, senderName, filePath) {
     const cookiePool = parsePool(cookiePoolRaw);
     let api = null, currentPoolIndex = 0;
 
     try {
-        const initial = await getWorkingApi(cookiePool, currentPoolIndex);
+        const initial = await getWorkingApi(cookiePool, proxy, currentPoolIndex);
         api = initial.api; currentPoolIndex = initial.poolIndex;
 
         serverState.status = "Sending Messages...";
@@ -147,7 +150,7 @@ async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, file
                     if (errorMsg.includes("login") || errorMsg.includes("checkpoint") || errorMsg.includes("session") || errorMsg.includes("MQTT")) {
                         addLog(`⚠️ Cookie #${currentPoolIndex + 1} Dead mid-process! Rotating...`);
                         try {
-                            const newSession = await getWorkingApi(cookiePool, currentPoolIndex + 1);
+                            const newSession = await getWorkingApi(cookiePool, proxy, currentPoolIndex + 1);
                             api = newSession.api; currentPoolIndex = newSession.poolIndex;
                             attempt = -1; 
                             continue;
