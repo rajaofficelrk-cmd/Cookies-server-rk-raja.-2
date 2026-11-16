@@ -3,60 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💀 RK RAJA XWD</title>
+    <title>💀 Bulk Messenger Panel</title>
     <style>
         :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', monospace; }
         body { background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; min-height: 100vh; }
-        .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; box-shadow: 0 0 40px rgba(255, 0, 51, 0.1); }
-        
-        .header-area { text-align: center; margin-bottom: 25px; display: flex; flex-direction: column; align-items: center; }
-        .header-area img { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; margin-bottom: 15px; border: 3px solid var(--accent); box-shadow: 0 0 20px rgba(255, 0, 51, 0.6); }
-        .header-area p { color: #888; font-size: 0.9em; letter-spacing: 2px; text-transform: uppercase; }
-        
+        .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; }
+        .header-area { text-align: center; margin-bottom: 25px; }
+        .header-area img { width: 100px; height: 100px; border-radius: 50%; border: 3px solid var(--accent); margin-bottom: 10px; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
         .full-width { grid-column: span 2; }
-        
         label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.85em; font-weight: bold; }
-        textarea, input, select { width: 100%; padding: 12px; background: #000; border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 14px; }
-        textarea:focus, input:focus { outline: none; border-color: var(--accent); }
-        
+        textarea, input { width: 100%; padding: 12px; background: #000; border: 1px solid var(--border); border-radius: 6px; color: #fff; }
         .btn-group { display: flex; gap: 10px; margin-top: 20px; }
-        button { flex: 1; padding: 15px; border: none; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer; text-transform: uppercase; transition: 0.2s; }
+        button { flex: 1; padding: 15px; border: none; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer; }
         #startBtn { background: var(--green); color: #000; }
         #stopBtn { background: var(--red); color: #fff; }
-        button:disabled { opacity: 0.3; cursor: not-allowed; }
-        
+        button:disabled { opacity: 0.3; }
         .terminal { margin-top: 25px; background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; height: 250px; overflow-y: auto; font-size: 13px; }
-        .log-line { margin-bottom: 4px; color: #bbb; }
         .log-success { color: var(--green); }
         .log-error { color: var(--red); }
-        
-        .status-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding: 15px; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; }
+        .status-bar { display: flex; justify-content: space-between; margin-top: 20px; padding: 15px; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; }
         .badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; }
         .badge.idle { background: #333; color: #aaa; }
-        .badge.running { background: var(--green); color: #000; animation: pulse 1.5s infinite; }
-        
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .badge.running { background: var(--green); color: #000; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header-area">
-            <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header Icon">
+            <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header">
             <p>Messenger Bulk Sender</p>
         </div>
 
         <form id="senderForm">
             <div class="grid">
                 <div class="full-width">
-                    <label>🍪 Cookies (C3C JSON)</label>
-                    <textarea id="cookies" name="cookies" rows="3" placeholder='[{"key":"c_user","value":"..."}, ...]' required></textarea>
-                </div>
-                
-                <div class="full-width">
-                    <label>🍪 Backup Cookies (Optional)</label>
-                    <textarea id="backup_cookies" name="backup_cookies" rows="2" placeholder='Agar primary cookie expire ho jaye toh ye use hogi...'></textarea>
+                    <label>🍪 Cookie Pool (Ek cookie ke baad --- likh kar nayi daalo)</label>
+                    <textarea id="cookie_pool" name="cookie_pool" rows="5" placeholder='[{"key":"c_user","value":"..."}]&#10;---&#10;[{"key":"c_user","value":"..."}]' required></textarea>
                 </div>
 
                 <div>
@@ -66,16 +50,16 @@
 
                 <div>
                     <label>⏱️ Time Delay (Seconds)</label>
-                    <input type="number" id="time_delay" name="time_delay" value="1" min="1" required>
+                    <input type="number" id="time_delay" name="time_delay" value="2" min="1" required>
                 </div>
 
                 <div class="full-width">
-                    <label>🏷️ Here Name (Sender Name)</label>
-                    <input type="text" id="sender_name" name="sender_name" placeholder="I am here" required>
+                    <label>🏷️ Here Name</label>
+                    <input type="text" id="sender_name" name="sender_name" placeholder="Sender Name" required>
                 </div>
 
                 <div class="full-width">
-                    <label>📁 Upload Message File (.txt)</label>
+                    <label>📁 Message File (.txt)</label>
                     <input type="file" id="message_file" name="message_file" accept=".txt" required>
                 </div>
             </div>
@@ -96,7 +80,7 @@
         </div>
 
         <div class="terminal" id="terminal">
-            <div class="log-line">> System ready. Waiting for input...</div>
+            <div class="log-line">> System ready...</div>
         </div>
     </div>
 
@@ -106,13 +90,13 @@
         const stopBtn = document.getElementById('stopBtn');
         const terminal = document.getElementById('terminal');
         let pollingInterval = null;
-        let lastLogCount = 0; // Track logs for smooth appending
+        let lastLogCount = 0;
 
         function printLog(msg) {
             const div = document.createElement('div');
             div.className = 'log-line';
-            if (msg.includes('✅') || msg.includes('🎉') || msg.includes('🚀')) div.classList.add('log-success');
-            if (msg.includes('❌') || msg.includes('🛑') || msg.includes('Failed')) div.classList.add('log-error');
+            if (msg.includes('✅') || msg.includes('🚀') || msg.includes('🔄')) div.classList.add('log-success');
+            if (msg.includes('❌') || msg.includes('🛑') || msg.includes('⚠️')) div.classList.add('log-error');
             div.innerText = msg;
             terminal.appendChild(div);
             terminal.scrollTop = terminal.scrollHeight;
@@ -120,27 +104,19 @@
 
         async function checkStatus() {
             try {
-                const res = await fetch('/api/status?t=' + new Date().getTime()); // Cache bypass
+                const res = await fetch('/api/status?t=' + new Date().getTime());
                 const data = await res.json();
-                
-                const badge = document.getElementById('statusBadge');
-                badge.className = `badge ${data.isRunning ? 'running' : 'idle'}`;
-                badge.innerText = data.isRunning ? 'RUNNING' : 'IDLE';
+                document.getElementById('statusBadge').className = `badge ${data.isRunning ? 'running' : 'idle'}`;
+                document.getElementById('statusBadge').innerText = data.isRunning ? 'RUNNING' : 'IDLE';
                 document.getElementById('statusText').innerText = data.status;
                 document.getElementById('sentCount').innerText = data.totalSent;
                 document.getElementById('failCount').innerText = data.totalFailed;
 
                 if (data.logs && data.logs.length > 0) {
-                    if (data.logs.length < lastLogCount) {
-                        terminal.innerHTML = ''; // Reset hua toh clear karo
-                        lastLogCount = 0;
-                    }
-                    for (let i = lastLogCount; i < data.logs.length; i++) {
-                        printLog(data.logs[i]);
-                    }
+                    if (data.logs.length < lastLogCount) { terminal.innerHTML = ''; lastLogCount = 0; }
+                    for (let i = lastLogCount; i < data.logs.length; i++) printLog(data.logs[i]);
                     lastLogCount = data.logs.length;
                 }
-
                 startBtn.disabled = data.isRunning;
                 stopBtn.disabled = !data.isRunning;
             } catch (err) {}
@@ -149,47 +125,35 @@
         startBtn.addEventListener('click', async () => {
             if (!form.checkValidity()) { form.reportValidity(); return; }
             
-            const formData = new FormData(form);
-            terminal.innerHTML = '';
-            lastLogCount = 0;
-            startBtn.disabled = true;
-            stopBtn.disabled = false; // Turant stop enable karo
+            // Check karo agar cookie khali hai toh alert de
+            if(!document.getElementById('cookie_pool').value.trim()){
+                alert("Bhai, sabse upar 'Cookie Pool' wale box me cookies daalo!");
+                return;
+            }
 
-            // Instant UI Feedback
-            printLog("> ⚡ Initializing instant connection...");
-            printLog("> 🔐 Checking cookies...");
+            const formData = new FormData(form);
+            terminal.innerHTML = ''; lastLogCount = 0;
+            startBtn.disabled = true; stopBtn.disabled = false; 
+            printLog("> ⚡ Starting...");
 
             try {
                 const res = await fetch('/api/start', { method: 'POST', body: formData });
                 const data = await res.json();
-                
                 if (data.status === 'error') {
-                    alert(data.message);
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
-                    return;
+                    alert(data.message); startBtn.disabled = false; stopBtn.disabled = true; return;
                 }
-                
-                // Fast polling: 500ms (0.5 seconds)
                 if (!pollingInterval) pollingInterval = setInterval(checkStatus, 500);
                 checkStatus();
-            } catch (err) {
-                printLog("> ❌ Network Error.");
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
-            }
+            } catch (err) { printLog("> ❌ Network Error."); startBtn.disabled = false; }
         });
 
         stopBtn.addEventListener('click', async () => {
             stopBtn.disabled = true;
-            printLog("> 🛑 Sending stop signal...");
+            printLog("> 🛑 Stopping...");
             try { await fetch('/api/stop', { method: 'POST' }); } catch (e) {}
         });
 
-        window.onload = () => {
-            checkStatus();
-            pollingInterval = setInterval(checkStatus, 500); // UI hamesha fast rahega
-        };
+        window.onload = () => { checkStatus(); pollingInterval = setInterval(checkStatus, 500); };
     </script>
 </body>
 </html>
