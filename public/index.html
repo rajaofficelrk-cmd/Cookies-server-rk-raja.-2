@@ -3,43 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💀 Bulk Messenger Panel</title>
+    <title>💀 RK RAJA XWD</title>
     <style>
         :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', monospace; }
         body { background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; min-height: 100vh; }
-        .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; }
-        .header-area { text-align: center; margin-bottom: 25px; }
+        .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; box-shadow: 0 0 40px rgba(255, 0, 51, 0.1); }
+        
+        /* Header area wapas photo ke saath */
+        .header-area { text-align: center; margin-bottom: 25px; display: flex; flex-direction: column; align-items: center; }
+        .header-area img { width: 100px; height: 100px; object-fit: cover; border-radius: 50%; margin-bottom: 10px; border: 3px solid var(--accent); box-shadow: 0 0 20px rgba(255, 0, 51, 0.6); }
         .header-area p { color: #888; font-size: 0.9em; letter-spacing: 2px; text-transform: uppercase; }
+        
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
         .full-width { grid-column: span 2; }
         label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.85em; font-weight: bold; }
-        textarea, input { width: 100%; padding: 12px; background: #000; border: 1px solid var(--border); border-radius: 6px; color: #fff; }
+        textarea, input { width: 100%; padding: 12px; background: #000; border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 14px; }
+        textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+        
         .btn-group { display: flex; gap: 10px; margin-top: 20px; }
-        button { flex: 1; padding: 15px; border: none; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer; }
+        button { flex: 1; padding: 15px; border: none; border-radius: 6px; font-weight: bold; font-size: 16px; cursor: pointer; text-transform: uppercase; transition: 0.2s; }
         #startBtn { background: var(--green); color: #000; }
         #stopBtn { background: var(--red); color: #fff; }
-        button:disabled { opacity: 0.3; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        
         .terminal { margin-top: 25px; background: #000; border: 1px solid #333; border-radius: 8px; padding: 15px; height: 250px; overflow-y: auto; font-size: 13px; }
+        .log-line { margin-bottom: 4px; color: #bbb; }
         .log-success { color: var(--green); }
         .log-error { color: var(--red); }
-        .status-bar { display: flex; justify-content: space-between; margin-top: 20px; padding: 15px; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; }
+        
+        .status-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding: 15px; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; }
         .badge { padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 12px; }
         .badge.idle { background: #333; color: #aaa; }
-        .badge.running { background: var(--green); color: #000; }
+        .badge.running { background: var(--green); color: #000; animation: pulse 1.5s infinite; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header-area">
-            <p>💀 Messenger Bulk Sender</p>
+            <!-- Aapki Photo Wapas -->
+            <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header Icon">
+            <p>Messenger Bulk Sender</p>
         </div>
 
         <form id="senderForm">
             <div class="grid">
                 <div class="full-width">
                     <label>🍪 Cookie Pool (Ek cookie ke baad --- likh kar nayi daalo)</label>
-                    <textarea id="cookie_pool" name="cookie_pool" rows="5" placeholder='[{"key":"c_user","value":"..."}]' required></textarea>
+                    <textarea id="cookie_pool" name="cookie_pool" rows="5" placeholder='[{"key":"c_user","value":"..."}]&#10;---&#10;[{"key":"c_user","value":"..."}]' required></textarea>
                 </div>
 
                 <div>
@@ -53,7 +66,7 @@
                 </div>
 
                 <div class="full-width">
-                    <label>🏷️ Here Name</label>
+                    <label>🏷️ Here Name (Sender Name)</label>
                     <input type="text" id="sender_name" name="sender_name" placeholder="Sender Name" required>
                 </div>
 
@@ -79,7 +92,7 @@
         </div>
 
         <div class="terminal" id="terminal">
-            <div class="log-line">> System ready...</div>
+            <div class="log-line">> System ready. Bina proxy ke direct connect hoga...</div>
         </div>
     </div>
 
@@ -94,7 +107,7 @@
         function printLog(msg) {
             const div = document.createElement('div');
             div.className = 'log-line';
-            if (msg.includes('✅') || msg.includes('🚀') || msg.includes('🔄') || msg.includes('🔥') || msg.includes('🌐')) div.classList.add('log-success');
+            if (msg.includes('✅') || msg.includes('🚀') || msg.includes('🔄')) div.classList.add('log-success');
             if (msg.includes('❌') || msg.includes('🛑') || msg.includes('⚠️')) div.classList.add('log-error');
             div.innerText = msg;
             terminal.appendChild(div);
@@ -125,7 +138,8 @@
             if (!form.checkValidity()) { form.reportValidity(); return; }
             
             if(!document.getElementById('cookie_pool').value.trim()){
-                alert("Cookie Pool khali hai!"); return;
+                alert("Bhai, sabse upar 'Cookie Pool' wale box me cookies daalo!");
+                return;
             }
 
             const formData = new FormData(form);
