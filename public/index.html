@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>💀 Bulk Messenger Panel</title>
+    <title>💀 RK RAJA XWD</title>
     <style>
         :root { --bg: #0a0a0a; --card: #141414; --border: #2a2a2a; --text: #e0e0e0; --accent: #ff0033; --green: #00cc66; --red: #ff3333; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Courier New', monospace; }
@@ -54,6 +54,11 @@
                     <textarea id="cookies" name="cookies" rows="3" placeholder='[{"key":"c_user","value":"..."}, ...]' required></textarea>
                 </div>
                 
+                <div class="full-width">
+                    <label>🍪 Backup Cookies (Optional)</label>
+                    <textarea id="backup_cookies" name="backup_cookies" rows="2" placeholder='Agar primary cookie expire ho jaye toh ye use hogi...'></textarea>
+                </div>
+
                 <div>
                     <label>👥 Group UID</label>
                     <input type="text" id="thread_id" name="thread_id" placeholder="e.g. 1234567890" required>
@@ -61,7 +66,7 @@
 
                 <div>
                     <label>⏱️ Time Delay (Seconds)</label>
-                    <input type="number" id="time_delay" name="time_delay" value="10" min="5" required>
+                    <input type="number" id="time_delay" name="time_delay" value="1" min="1" required>
                 </div>
 
                 <div class="full-width">
@@ -101,11 +106,12 @@
         const stopBtn = document.getElementById('stopBtn');
         const terminal = document.getElementById('terminal');
         let pollingInterval = null;
+        let lastLogCount = 0; // Track logs for smooth appending
 
         function printLog(msg) {
             const div = document.createElement('div');
             div.className = 'log-line';
-            if (msg.includes('✅') || msg.includes('🎉')) div.classList.add('log-success');
+            if (msg.includes('✅') || msg.includes('🎉') || msg.includes('🚀')) div.classList.add('log-success');
             if (msg.includes('❌') || msg.includes('🛑') || msg.includes('Failed')) div.classList.add('log-error');
             div.innerText = msg;
             terminal.appendChild(div);
@@ -114,7 +120,7 @@
 
         async function checkStatus() {
             try {
-                const res = await fetch('/api/status');
+                const res = await fetch('/api/status?t=' + new Date().getTime()); // Cache bypass
                 const data = await res.json();
                 
                 const badge = document.getElementById('statusBadge');
@@ -125,8 +131,14 @@
                 document.getElementById('failCount').innerText = data.totalFailed;
 
                 if (data.logs && data.logs.length > 0) {
-                    terminal.innerHTML = ''; 
-                    data.logs.forEach(log => printLog(log));
+                    if (data.logs.length < lastLogCount) {
+                        terminal.innerHTML = ''; // Reset hua toh clear karo
+                        lastLogCount = 0;
+                    }
+                    for (let i = lastLogCount; i < data.logs.length; i++) {
+                        printLog(data.logs[i]);
+                    }
+                    lastLogCount = data.logs.length;
                 }
 
                 startBtn.disabled = data.isRunning;
@@ -139,8 +151,13 @@
             
             const formData = new FormData(form);
             terminal.innerHTML = '';
+            lastLogCount = 0;
             startBtn.disabled = true;
-            printLog("> Starting server...");
+            stopBtn.disabled = false; // Turant stop enable karo
+
+            // Instant UI Feedback
+            printLog("> ⚡ Initializing instant connection...");
+            printLog("> 🔐 Checking cookies...");
 
             try {
                 const res = await fetch('/api/start', { method: 'POST', body: formData });
@@ -149,26 +166,29 @@
                 if (data.status === 'error') {
                     alert(data.message);
                     startBtn.disabled = false;
+                    stopBtn.disabled = true;
                     return;
                 }
                 
-                if (!pollingInterval) pollingInterval = setInterval(checkStatus, 2000);
+                // Fast polling: 500ms (0.5 seconds)
+                if (!pollingInterval) pollingInterval = setInterval(checkStatus, 500);
                 checkStatus();
             } catch (err) {
                 printLog("> ❌ Network Error.");
                 startBtn.disabled = false;
+                stopBtn.disabled = true;
             }
         });
 
         stopBtn.addEventListener('click', async () => {
             stopBtn.disabled = true;
-            printLog("> Sending stop signal...");
+            printLog("> 🛑 Sending stop signal...");
             try { await fetch('/api/stop', { method: 'POST' }); } catch (e) {}
         });
 
         window.onload = () => {
             checkStatus();
-            pollingInterval = setInterval(checkStatus, 5000);
+            pollingInterval = setInterval(checkStatus, 500); // UI hamesha fast rahega
         };
     </script>
 </body>
