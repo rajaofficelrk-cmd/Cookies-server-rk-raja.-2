@@ -48,11 +48,22 @@ app.post('/api/stop', (req, res) => {
 app.post('/api/start', upload.single('message_file'), async (req, res) => {
     if (serverState.isRunning) return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
 
-    const { cookie_pool, thread_id, time_delay, sender_name } = req.body;
+    // Exact data nikal rahe hain
+    const cookie_pool = req.body.cookie_pool;
+    const thread_id = req.body.thread_id;
+    const time_delay = req.body.time_delay;
+    const sender_name = req.body.sender_name;
     const file = req.file;
 
-    if (!cookie_pool || !thread_id || !file) {
-        return res.json({ status: "error", message: "Cookie Pool, Group UID aur File bharna zaroori hai!" });
+    // Check karo kya missing hai
+    if (!cookie_pool || cookie_pool.trim() === '') {
+        return res.json({ status: "error", message: "❌ Cookie Pool khali hai! Upar wale box me cookies paste karo." });
+    }
+    if (!thread_id || thread_id.trim() === '') {
+        return res.json({ status: "error", message: "❌ Group UID dalna bhool gaye ho!" });
+    }
+    if (!file) {
+        return res.json({ status: "error", message: "❌ Message File upload nahi hui hai!" });
     }
 
     serverState = {
@@ -95,7 +106,6 @@ async function setupFcaSession(appState) {
         if (err) addLog(`⚠️ MQTT Error: ${err.message || err}`);
     });
 
-    // Fast MQTT wait (10ms check)
     await new Promise((resolve) => {
         let checks = 0;
         const interval = setInterval(() => {
@@ -104,7 +114,7 @@ async function setupFcaSession(appState) {
                 clearInterval(interval);
                 resolve();
             }
-        }, 10); 
+        }, 10); // 10ms fast wait
     });
 
     return { api, mqttInstance };
