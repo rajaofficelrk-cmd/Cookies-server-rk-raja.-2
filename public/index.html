@@ -125,7 +125,6 @@
         startBtn.addEventListener('click', async () => {
             if (!form.checkValidity()) { form.reportValidity(); return; }
             
-            // Check karo agar cookie khali hai toh alert de
             if(!document.getElementById('cookie_pool').value.trim()){
                 alert("Bhai, sabse upar 'Cookie Pool' wale box me cookies daalo!");
                 return;
