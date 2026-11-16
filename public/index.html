@@ -10,7 +10,7 @@
         body { background: var(--bg); color: var(--text); display: flex; justify-content: center; padding: 20px; min-height: 100vh; }
         .container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 25px; width: 100%; max-width: 800px; }
         .header-area { text-align: center; margin-bottom: 25px; }
-        .header-area img { width: 100px; height: 100px; border-radius: 50%; border: 3px solid var(--accent); margin-bottom: 10px; }
+        .header-area p { color: #888; font-size: 0.9em; letter-spacing: 2px; text-transform: uppercase; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
         .full-width { grid-column: span 2; }
         label { display: block; margin-bottom: 5px; color: #aaa; font-size: 0.85em; font-weight: bold; }
@@ -32,15 +32,14 @@
 <body>
     <div class="container">
         <div class="header-area">
-            <img src="https://i.ibb.co/KjtjBDRP/file-00000000f49c821197fdc7fcda40847d.png" alt="Header">
-            <p>Messenger Bulk Sender</p>
+            <p>💀 Messenger Bulk Sender</p>
         </div>
 
         <form id="senderForm">
             <div class="grid">
                 <div class="full-width">
                     <label>🍪 Cookie Pool (Ek cookie ke baad --- likh kar nayi daalo)</label>
-                    <textarea id="cookie_pool" name="cookie_pool" rows="5" placeholder='[{"key":"c_user","value":"..."}]&#10;---&#10;[{"key":"c_user","value":"..."}]' required></textarea>
+                    <textarea id="cookie_pool" name="cookie_pool" rows="5" placeholder='[{"key":"c_user","value":"..."}]' required></textarea>
                 </div>
 
                 <div>
@@ -95,7 +94,7 @@
         function printLog(msg) {
             const div = document.createElement('div');
             div.className = 'log-line';
-            if (msg.includes('✅') || msg.includes('🚀') || msg.includes('🔄') || msg.includes('🌐') || msg.includes('🔥')) div.classList.add('log-success');
+            if (msg.includes('✅') || msg.includes('🚀') || msg.includes('🔄') || msg.includes('🔥') || msg.includes('🌐')) div.classList.add('log-success');
             if (msg.includes('❌') || msg.includes('🛑') || msg.includes('⚠️')) div.classList.add('log-error');
             div.innerText = msg;
             terminal.appendChild(div);
@@ -126,8 +125,7 @@
             if (!form.checkValidity()) { form.reportValidity(); return; }
             
             if(!document.getElementById('cookie_pool').value.trim()){
-                alert("Bhai, sabse upar 'Cookie Pool' wale box me cookies daalo!");
-                return;
+                alert("Cookie Pool khali hai!"); return;
             }
 
             const formData = new FormData(form);
