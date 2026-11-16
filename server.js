@@ -3,7 +3,6 @@ const multer = require('multer');
 const login = require('@dongdev/fca-unofficial');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -52,7 +51,7 @@ app.post('/api/start', upload.single('message_file'), async (req, res) => {
 
     serverState = { isRunning: true, status: "Initializing...", logs: [], totalSent: 0, totalFailed: 0, stopRequested: false };
 
-    res.json({ status: "success", message: "Server chalu ho gaya! Auto-proxy fetch ho rahi hai..." });
+    res.json({ status: "success", message: "Server chalu ho gaya!" });
     runSenderProcess(cookie_pool, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
@@ -72,61 +71,18 @@ function parseCookies(cookiesRaw) {
     return appState;
 }
 
-// 🌐 AUTO PROXY FETCHER (Bina kuch dale, khud le aayega)
-async function getFreeProxy() {
-    addLog("🌐 Internet se free proxies fetch kar raha hoon...");
-    try {
-        const res = await fetch('https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt');
-        const text = await res.text();
-        let proxies = text.split('\n').map(p => p.trim()).filter(p => p.includes(':'));
-        
-        // Random 50 proxies uthao
-        proxies = proxies.sort(() => 0.5 - Math.random()).slice(0, 50);
-        addLog(`✅ ${proxies.length} proxies mili. Fastest dhoondh raha hoon...`);
-
-        // Parallel testing (Jo pehle pass hogi wahi use hoga)
-        const workingProxy = await new Promise((resolve) => {
-            let completed = false;
-            proxies.forEach(proxy => {
-                const [host, port] = proxy.split(':');
-                const req = http.request({
-                    host: host, port: port, path: 'http://www.google.com', method: 'CONNECT', timeout: 2000
-                }, () => {
-                    if (!completed) { completed = true; resolve(proxy); }
-                });
-                req.on('error', () => {});
-                req.on('timeout', () => { req.destroy(); });
-                req.end();
-            });
-            setTimeout(() => { if (!completed) resolve(null); }, 4000); // 4s max wait
-        });
-
-        if (workingProxy) addLog(`🔥 Working Proxy mil gayi: ${workingProxy.substring(0,10)}...`);
-        else addLog("⚠️ Koi fast proxy nahi mili, direct try kar raha hoon...");
-        
-        return workingProxy;
-    } catch (e) {
-        addLog("❌ Proxy fetch failed. Direct try kar raha hoon...");
-        return null;
-    }
-}
-
-async function setupFcaSession(appState, proxy) {
-    const loginOptions = { appState: appState, forceLogin: true };
-    
-    if (proxy) {
-        loginOptions.proxy = `http://${proxy}`;
-    }
-
+async function setupFcaSession(appState) {
+    // Bina proxy ke direct login
     const loginPromise = new Promise((resolve, reject) => {
-        login(loginOptions, (err, api) => {
+        login({ appState: appState }, (err, api) => {
             if (err) return reject(err);
             resolve(api);
         });
     });
 
+    // Agar 10 second me login nahi hua toh timeout
     const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Timeout - Cookie dead ya Proxy fail")), 12000)
+        setTimeout(() => reject(new Error("Timeout - Cookie dead ya IP blocked")), 10000)
     );
 
     const api = await Promise.race([loginPromise, timeoutPromise]);
@@ -138,35 +94,18 @@ async function setupFcaSession(appState, proxy) {
 }
 
 async function getWorkingApi(cookiePool, startIndex) {
-    // 1. Pehle Auto-Proxy fetch karo
-    const proxy = await getFreeProxy();
-
     for (let i = startIndex; i < cookiePool.length; i++) {
-        const appState = parseCookies(cookiePool[i]);
-        
-        // Try with Proxy (Agar mili hai)
-        if (proxy) {
-            try {
-                addLog(`🔐 Trying Cookie #${i + 1} via Proxy...`);
-                const session = await setupFcaSession(appState, proxy);
-                addLog(`✅ Cookie #${i + 1} Login Successful!`);
-                return { api: session.api, poolIndex: i };
-            } catch (err) {
-                addLog(`❌ Proxy Failed: ${err.message}`);
-            }
-        }
-
-        // Try Direct (Agar proxy fail ho jaye)
         try {
-            addLog(`🔐 Trying Cookie #${i + 1} (Direct IP)...`);
-            const session = await setupFcaSession(appState, null);
-            addLog(`✅ Cookie #${i + 1} Login Successful (Direct)!`);
+            const appState = parseCookies(cookiePool[i]);
+            addLog(`🔐 Trying Cookie #${i + 1}...`);
+            const session = await setupFcaSession(appState);
+            addLog(`✅ Cookie #${i + 1} Login Successful!`);
             return { api: session.api, poolIndex: i };
         } catch (err) {
-            addLog(`❌ Direct Failed: ${err.message}`);
+            addLog(`❌ Cookie #${i + 1} Failed: ${err.message}`);
         }
     }
-    throw new Error("Saari cookies aur proxies fail ho gayi!");
+    throw new Error("Saari cookies dead hain ya timeout ho gayi!");
 }
 
 async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, filePath) {
