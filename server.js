@@ -10,22 +10,13 @@ const PORT = process.env.PORT || 5000;
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads', { recursive: true });
 const upload = multer({ dest: 'uploads/' });
 
-let serverState = {
-    isRunning: false,
-    status: "Idle",
-    logs: [],
-    totalSent: 0,
-    totalFailed: 0,
-    stopRequested: false
-};
+let serverState = { isRunning: false, status: "Idle", logs: [], totalSent: 0, totalFailed: 0, stopRequested: false };
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 function addLog(msg) {
     const time = new Date().toLocaleTimeString();
@@ -48,36 +39,23 @@ app.post('/api/stop', (req, res) => {
 app.post('/api/start', upload.single('message_file'), async (req, res) => {
     if (serverState.isRunning) return res.json({ status: "error", message: "Server pehle se chal raha hai!" });
 
-    // Exact data nikal rahe hain
     const cookie_pool = req.body.cookie_pool;
     const thread_id = req.body.thread_id;
     const time_delay = req.body.time_delay;
     const sender_name = req.body.sender_name;
     const file = req.file;
 
-    // Check karo kya missing hai
-    if (!cookie_pool || cookie_pool.trim() === '') {
-        return res.json({ status: "error", message: "❌ Cookie Pool khali hai! Upar wale box me cookies paste karo." });
-    }
-    if (!thread_id || thread_id.trim() === '') {
-        return res.json({ status: "error", message: "❌ Group UID dalna bhool gaye ho!" });
-    }
-    if (!file) {
-        return res.json({ status: "error", message: "❌ Message File upload nahi hui hai!" });
-    }
+    if (!cookie_pool || cookie_pool.trim() === '') return res.json({ status: "error", message: "❌ Cookie Pool khali hai!" });
+    if (!thread_id || thread_id.trim() === '') return res.json({ status: "error", message: "❌ Group UID dalna bhool gaye ho!" });
+    if (!file) return res.json({ status: "error", message: "❌ Message File upload nahi hui hai!" });
 
-    serverState = {
-        isRunning: true, status: "Initializing...", logs: [],
-        totalSent: 0, totalFailed: 0, stopRequested: false
-    };
+    serverState = { isRunning: true, status: "Initializing...", logs: [], totalSent: 0, totalFailed: 0, stopRequested: false };
 
     res.json({ status: "success", message: "Server chalu ho gaya!" });
     runSenderProcess(cookie_pool, thread_id, parseInt(time_delay), sender_name, file.path);
 });
 
-function parsePool(poolRaw) {
-    return poolRaw.split('---').map(c => c.trim()).filter(c => c !== '');
-}
+function parsePool(poolRaw) { return poolRaw.split('---').map(c => c.trim()).filter(c => c !== ''); }
 
 function parseCookies(cookiesRaw) {
     let appState = [];
@@ -93,31 +71,30 @@ function parseCookies(cookiesRaw) {
     return appState;
 }
 
+// ✅ LOGIN TIMEOUT FIX (5 Seconds max wait)
 async function setupFcaSession(appState) {
-    const api = await new Promise((resolve, reject) => {
+    const loginPromise = new Promise((resolve, reject) => {
         login({ appState: appState }, (err, api) => {
             if (err) return reject(err);
             resolve(api);
         });
     });
 
+    const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Login timeout (5s) - Cookie dead or IP blocked")), 5000)
+    );
+
+    // Race condition: Jo pehle complete ho jaye (Login ya 5s Timeout)
+    const api = await Promise.race([loginPromise, timeoutPromise]);
+
     api.setOptions({ listenEvents: false, selfListen: false, forceLogin: true, autoMarkRead: false });
-    const mqttInstance = api.listenMqtt((err) => {
-        if (err) addLog(`⚠️ MQTT Error: ${err.message || err}`);
+    
+    // MQTT start karo background me, wait mat karo
+    api.listenMqtt((err) => {
+        if (err) console.log(`MQTT Error: ${err.message}`);
     });
 
-    await new Promise((resolve) => {
-        let checks = 0;
-        const interval = setInterval(() => {
-            checks++;
-            if (api._mqttClient?.connected || api.mqttClient?.connected || checks >= 100) {
-                clearInterval(interval);
-                resolve();
-            }
-        }, 10); // 10ms fast wait
-    });
-
-    return { api, mqttInstance };
+    return { api };
 }
 
 async function getWorkingApi(cookiePool, startIndex) {
@@ -127,21 +104,21 @@ async function getWorkingApi(cookiePool, startIndex) {
             addLog(`🔐 Trying Cookie #${i + 1}...`);
             const session = await setupFcaSession(appState);
             addLog(`✅ Cookie #${i + 1} Login Successful!`);
-            return { api: session.api, mqtt: session.mqttInstance, poolIndex: i };
+            return { api: session.api, poolIndex: i };
         } catch (err) {
-            addLog(`❌ Cookie #${i + 1} Failed.`);
+            addLog(`❌ Cookie #${i + 1} Failed: ${err.message}`);
         }
     }
-    throw new Error("Saari cookies dead hain!");
+    throw new Error("Saari cookies dead hain ya timeout ho gayi!");
 }
 
 async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, filePath) {
     const cookiePool = parsePool(cookiePoolRaw);
-    let api = null, mqttInstance = null, currentPoolIndex = 0;
+    let api = null, currentPoolIndex = 0;
 
     try {
         const initial = await getWorkingApi(cookiePool, currentPoolIndex);
-        api = initial.api; mqttInstance = initial.mqtt; currentPoolIndex = initial.poolIndex;
+        api = initial.api; currentPoolIndex = initial.poolIndex;
 
         serverState.status = "Sending Messages...";
         addLog("🚀 Started Sending Non-Stop!");
@@ -149,15 +126,13 @@ async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, file
         const messages = fs.readFileSync(filePath, 'utf-8').split('\n').map(m => m.trim()).filter(m => m.length > 0);
         if (messages.length === 0) throw new Error("File khali hai.");
 
-        addLog(`📁 Total ${messages.length} messages. Delay: ${delay}s`);
-
         for (let i = 0; i < messages.length; i++) {
             if (serverState.stopRequested) break;
 
             const finalMessage = `${senderName}\n${messages[i]}`;
             let success = false;
 
-            for (let attempt = 0; attempt < 3; attempt++) {
+            for (let attempt = 0; attempt < 2; attempt++) {
                 try {
                     await new Promise((resolve, reject) => {
                         api.sendMessage(finalMessage, threadId, (err) => {
@@ -169,19 +144,14 @@ async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, file
                     break;
                 } catch (err) {
                     const errorMsg = err?.message || String(err);
-                    
                     if (errorMsg.includes("login") || errorMsg.includes("checkpoint") || errorMsg.includes("session") || errorMsg.includes("MQTT")) {
-                        addLog(`⚠️ Cookie #${currentPoolIndex + 1} Dead! Rotating...`);
-                        if (mqttInstance && typeof mqttInstance.stopListening === 'function') mqttInstance.stopListening();
-
+                        addLog(`⚠️ Cookie #${currentPoolIndex + 1} Dead mid-process! Rotating...`);
                         try {
                             const newSession = await getWorkingApi(cookiePool, currentPoolIndex + 1);
-                            api = newSession.api; mqttInstance = newSession.mqtt; currentPoolIndex = newSession.poolIndex;
+                            api = newSession.api; currentPoolIndex = newSession.poolIndex;
                             attempt = -1; 
                             continue;
-                        } catch (rotateErr) {
-                            throw new Error("All cookies dead.");
-                        }
+                        } catch (rotateErr) { throw new Error("All cookies dead."); }
                     } else {
                         await new Promise(r => setTimeout(r, 1000));
                     }
@@ -203,7 +173,6 @@ async function runSenderProcess(cookiePoolRaw, threadId, delay, senderName, file
         addLog(`❌ Error: ${error.message}`);
         serverState.status = "Failed";
     } finally {
-        if (mqttInstance && typeof mqttInstance.stopListening === 'function') mqttInstance.stopListening();
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         serverState.isRunning = false;
         serverState.status = serverState.stopRequested ? "Stopped" : "Completed";
